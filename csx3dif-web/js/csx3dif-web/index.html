@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>csx3dif</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
+    crossorigin="anonymous"></script>
+</head>
+
+<template id="progressbartemplate">
+  <div class="progress mb-1" role="progressbar">
+    <div class="progress-bar"></div>
+  </div>
+</template>
+
+<body>
+  <div class="container">
+    <h1 class="text-center">
+      csx3dif
+    </h1>
+    <div class="row">
+      <div class="input-group mb-3">
+        <label class="input-group-text" for="csxupload">Upload</label>
+        <input type="file" class="form-control" id="csxupload">
+      </div>
+    </div>
+    <h2 class="text-center">Options</h2>
+    <div class="row">
+      <div class="input-group mb-3">
+        <label class="input-group-text" for="versionSelect">Version</label>
+        <select class="form-select" id="engineSelect">
+          <option value="MBG" selected>MBG</option>
+          <option value="TGE">TGE</option>
+          <option value="TGEA">TGEA</option>
+          <option value="T3D">T3D</option>
+        </select>
+        <select class="form-select w-50" id="versionSelect">
+          <option value="0" selected>0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+        </select>
+        <span class="input-group-text">Optimize for marble blast</span>
+        <div class="input-group-text">
+          <input class="form-check-input mt-0" type="checkbox" value="mbonly" id="mbonly" checked>
+        </div>
+      </div>
+      <div class="input-group mb-3">
+        <label class="input-group-text" for="bspSelect">BSP Algorithm</label>
+        <select class="form-select" id="bspSelect">
+          <option value="0" selected>Exhaustive</option>
+          <option value="1">Sampling</option>
+          <option value="2">None</option>
+        </select>
+        <label class="input-group-text" for="ptep">Point Epsilon</label>
+        <input type="number" placeholder="Point Epsilon" class="form-control" value="0.000001" id="ptep">
+        <label class="input-group-text" for="plep">Plane Epsilon</label>
+        <input type="number" placeholder="Plane Epsilon" class="form-control" value="0.0001" id="plep">
+      </div>
+      <input type="submit" class="btn btn-primary" id="submitBtn" value="Convert">
+    </div>
+    <div class="row py-5">
+      <div>
+        <div id="progresslist">
+
+        </div>
+      </div>
+      <textarea class="form-control border-0" style="overflow-y: auto; height: 12em;" id="bsp-report"
+        disabled=""></textarea>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

@@ -1,0 +1,5 @@
+[toolchain]
+channel = "nightly-x86_64-pc-windows-msvc"
+components = ["rustfmt", "rustc-dev"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

@@ -1,0 +1,22 @@
+{
+  "name": "csx3dif-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.2",
+    "vite": "^4.4.5",
+    "vite-plugin-cross-origin-isolation": "^0.1.6"
+  },
+  "dependencies": {
+    "comlink": "^4.4.1",
+    "csx3dif-web": "file:../../pkg",
+    "vite-plugin-top-level-await": "^1.3.1",
+    "vite-plugin-wasm": "^3.2.2"
+  }
+}
