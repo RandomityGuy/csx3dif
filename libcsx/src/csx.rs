@@ -9,43 +9,47 @@ use dif::{
     types::{MatrixF, PlaneF, Point3F},
 };
 use itertools::Itertools;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::builder::{BSPReport, DIFBuilder, ProgressEventListener};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ConstructorScene {
     #[serde(rename = "DetailLevels")]
     pub detail_levels: DetailLevels,
+    #[serde(rename = "@version")]
+    pub version: i32,
+    #[serde(rename = "@creator")]
+    pub creator: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct DetailLevels {
     pub detail_level: Vec<DetailLevel>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct DetailLevel {
     pub interior_map: InteriorMap,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct InteriorMap {
     pub entities: Entities,
     pub brushes: Brushes,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Entities {
     pub entity: Vec<Entity>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Entity {
     #[serde(rename = "@id")]
@@ -55,26 +59,33 @@ pub struct Entity {
     #[serde(rename = "@gametype")]
     pub gametype: String,
     #[serde(default)]
-    #[serde(rename = "@origin", deserialize_with = "deserialize_point_optional")]
+    #[serde(
+        rename = "@origin",
+        serialize_with = "serialize_point_optional",
+        deserialize_with = "deserialize_point_optional"
+    )]
     pub origin: Option<Point3F>,
-    #[serde(deserialize_with = "deserialize_propertymap")]
+    #[serde(
+        serialize_with = "serialize_propertymap",
+        deserialize_with = "deserialize_propertymap"
+    )]
     pub properties: HashMap<String, String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct EntityProperties {
     #[serde(rename = "$value", deserialize_with = "deserialize_propertymap")]
     pub property_map: HashMap<String, String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Brushes {
     pub brush: Vec<Brush>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Brush {
     #[serde(rename = "@id")]
@@ -83,47 +94,71 @@ pub struct Brush {
     pub owner: i32,
     #[serde(rename = "@type")]
     pub type_: i32,
-    #[serde(rename = "@transform", deserialize_with = "deserialize_matrix")]
+    #[serde(
+        rename = "@transform",
+        serialize_with = "serialize_matrix",
+        deserialize_with = "deserialize_matrix"
+    )]
     pub transform: MatrixF,
     pub vertices: Vertices,
     pub face: Vec<Face>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Vertices {
     pub vertex: Vec<Vertex>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Vertex {
-    #[serde(rename = "@pos", deserialize_with = "deserialize_point")]
+    #[serde(
+        rename = "@pos",
+        serialize_with = "serialize_point",
+        deserialize_with = "deserialize_point"
+    )]
     pub pos: Point3F,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Face {
     #[serde(rename = "@id")]
     pub id: i32,
-    #[serde(rename = "@plane", deserialize_with = "deserialize_plane")]
+    #[serde(
+        rename = "@plane",
+        serialize_with = "serialize_plane",
+        deserialize_with = "deserialize_plane"
+    )]
     pub plane: PlaneF,
     #[serde(rename = "@material")]
     pub material: String,
-    #[serde(rename = "@texgens", deserialize_with = "deserialize_texgen")]
+    #[serde(
+        rename = "@texgens",
+        serialize_with = "serialize_texgen",
+        deserialize_with = "deserialize_texgen"
+    )]
     pub texgens: TexGen,
-    #[serde(rename = "@texDiv", deserialize_with = "deserialize_number_list")]
+    #[serde(
+        rename = "@texDiv",
+        serialize_with = "serialize_number_list",
+        deserialize_with = "deserialize_number_list"
+    )]
     pub tex_div: Vec<i32>,
     pub indices: Indices,
     #[serde(skip_deserializing)]
     pub face_id: i32,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Indices {
-    #[serde(rename = "@indices", deserialize_with = "deserialize_number_list")]
+    #[serde(
+        rename = "@indices",
+        serialize_with = "serialize_number_list",
+        deserialize_with = "deserialize_number_list"
+    )]
     pub indices: Vec<i32>,
 }
 
@@ -152,6 +187,14 @@ where
     }
 }
 
+fn serialize_point<S>(v: &Point3F, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!("{} {} {}", v.x, v.y, v.z);
+    format_str.serialize(serializer)
+}
+
 fn deserialize_point_optional<'de, D>(deserializer: D) -> Result<Option<Point3F>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -169,6 +212,19 @@ where
             Ok(Some(Point3F::new(coords[0], coords[1], coords[2])))
         }
         Err(e) => Err(e),
+    }
+}
+
+fn serialize_point_optional<S>(v: &Option<Point3F>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match v {
+        Some(v) => {
+            let format_str = format!("{} {} {}", v.x, v.y, v.z);
+            format_str.serialize(serializer)
+        }
+        None => "".serialize(serializer),
     }
 }
 
@@ -192,6 +248,17 @@ where
     }
 }
 
+fn serialize_plane<S>(v: &PlaneF, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!(
+        "{} {} {} {}",
+        v.normal.x, v.normal.y, v.normal.z, v.distance
+    );
+    format_str.serialize(serializer)
+}
+
 fn deserialize_number_list<'de, D>(deserializer: D) -> Result<Vec<i32>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -204,6 +271,20 @@ where
             .collect()),
         Err(e) => Err(e),
     }
+}
+
+fn serialize_number_list<S>(v: &Vec<i32>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!(
+        "{}",
+        v.iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+    format_str.serialize(serializer)
 }
 
 fn deserialize_texgen<'de, D>(deserializer: D) -> Result<TexGen, D::Error>
@@ -238,6 +319,27 @@ where
     }
 }
 
+fn serialize_texgen<S>(v: &TexGen, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!(
+        "{} {} {} {} {} {} {} {} {} {} {}",
+        v.plane_x.normal.x,
+        v.plane_x.normal.y,
+        v.plane_x.normal.z,
+        v.plane_x.distance,
+        v.plane_y.normal.x,
+        v.plane_y.normal.y,
+        v.plane_y.normal.z,
+        v.plane_y.distance,
+        v.rot,
+        v.scale[0],
+        v.scale[1]
+    );
+    format_str.serialize(serializer)
+}
+
 fn deserialize_matrix<'de, D>(deserializer: D) -> Result<MatrixF, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -259,6 +361,32 @@ where
     }
 }
 
+fn serialize_matrix<S>(v: &MatrixF, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!(
+        "{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+        v.x.x,
+        v.y.x,
+        v.z.x,
+        v.w.x,
+        v.x.y,
+        v.y.y,
+        v.z.y,
+        v.w.y,
+        v.x.z,
+        v.y.z,
+        v.z.z,
+        v.w.z,
+        v.x.w,
+        v.y.w,
+        v.z.w,
+        v.w.w
+    );
+    format_str.serialize(serializer)
+}
+
 fn deserialize_propertymap<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -272,6 +400,20 @@ where
             .collect::<HashMap<String, String>>()),
         Err(e) => Err(e),
     }
+}
+
+fn serialize_propertymap<S>(v: &HashMap<String, String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let format_str = format!(
+        "{{{}}}",
+        v.iter()
+            .map(|(k, v)| format!("@{}={}", k, v))
+            .collect::<Vec<String>>()
+            .join(",")
+    );
+    format_str.serialize(serializer)
 }
 
 pub fn preprocess_csx(cscene: &mut ConstructorScene) {
@@ -535,7 +677,7 @@ pub fn convert_csx(
     (dif_data, reports)
 }
 
-fn dif_with_interiors(interiors: Vec<Interior>) -> Dif {
+pub fn dif_with_interiors(interiors: Vec<Interior>) -> Dif {
     Dif {
         interiors,
         sub_objects: vec![],

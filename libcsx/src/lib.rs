@@ -1,6 +1,6 @@
 pub mod bsp;
 pub mod builder;
-mod csx;
+pub mod csx;
 use std::io::Cursor;
 
 use bsp::BSP_CONFIG;
