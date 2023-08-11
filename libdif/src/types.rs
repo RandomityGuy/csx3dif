@@ -63,7 +63,7 @@ impl BoxF {
         (self.min + self.max) / 2.0
     }
     pub fn extent(&self) -> Point3F {
-        self.min - self.max
+        self.max - self.min
     }
     pub fn union(&self, other: &BoxF) -> BoxF {
         BoxF {

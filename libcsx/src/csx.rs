@@ -6,7 +6,7 @@ use dif::{
     game_entity::GameEntity,
     interior::Interior,
     io::{Version, Writable},
-    types::{MatrixF, PlaneF, Point3F},
+    types::{BoxF, MatrixF, PlaneF, Point3F},
 };
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};

@@ -255,12 +255,12 @@ impl DIFBuilder {
         for i in 0..16 {
             let min_x = self.interior.bounding_box.min.x
                 + (i as f32 * self.interior.bounding_box.extent().x / 16f32);
-            let max_x = self.interior.bounding_box.max.x
+            let max_x = self.interior.bounding_box.min.x
                 + ((i + 1) as f32 * self.interior.bounding_box.extent().x / 16f32);
             for j in 0..16 {
                 let min_y = self.interior.bounding_box.min.y
                     + (j as f32 * self.interior.bounding_box.extent().y / 16f32);
-                let max_y = self.interior.bounding_box.max.y
+                let max_y = self.interior.bounding_box.min.y
                     + ((j + 1) as f32 * self.interior.bounding_box.extent().y / 16f32);
 
                 let bin_index = (i * 16) + j;
