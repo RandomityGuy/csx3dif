@@ -33,6 +33,8 @@ pub struct DIFBuilder {
     plane_map: HashMap<OrdPlaneF, PlaneIndex>,
     point_map: HashMap<OrdPoint, PointIndex>,
     normal_map: HashMap<OrdPoint, NormalIndex>,
+    texgen_map: HashMap<OrdTexGen, TexGenIndex>,
+    emit_string_map: HashMap<Vec<u8>, EmitStringIndex>,
     mb_only: bool,
     bsp_report: BSPReport,
 }
@@ -50,6 +52,8 @@ impl DIFBuilder {
             plane_map: HashMap::new(),
             point_map: HashMap::new(),
             normal_map: HashMap::new(),
+            texgen_map: HashMap::new(),
+            emit_string_map: HashMap::new(),
             mb_only: mb_only,
             bsp_report: BSPReport {
                 balance_factor: 0,
@@ -238,7 +242,15 @@ impl DIFBuilder {
             plane_x: tex_gen.plane_x.clone(),
             plane_y: tex_gen.plane_y.clone(),
         };
+        let ord_texgen = OrdTexGen(TexGenEq {
+            plane_x: tex_gen.plane_x.clone(),
+            plane_y: tex_gen.plane_y.clone(),
+        });
+        if self.texgen_map.contains_key(&ord_texgen) {
+            return *self.texgen_map.get(&ord_texgen).unwrap();
+        }
         self.interior.tex_gen_eqs.push(eq);
+        self.texgen_map.insert(ord_texgen, index);
         return index;
     }
 
@@ -632,6 +644,10 @@ impl DIFBuilder {
     fn export_emit_string(&mut self, string: Vec<u8>) -> EmitStringIndex {
         let index =
             EmitStringIndex::new(self.interior.convex_hull_emit_string_characters.len() as _);
+        if self.emit_string_map.contains_key(&string) {
+            return *self.emit_string_map.get(&string).unwrap();
+        }
+        self.emit_string_map.insert(string.clone(), index);
         self.interior
             .convex_hull_emit_string_characters
             .extend(string);
@@ -933,6 +949,92 @@ impl Hash for OrdPlaneF {
         let mut mul = self.x.abs().max(self.y.abs()).max(self.z.abs());
         mul = (mul * 100.0 + 0.5).floor() / 100.0;
         let val = mul * ((self.d.abs() * 100.0 + 0.5).floor() / 100.0);
+        let hash_val = (val as u32) % (1 << 12);
+        hash_val.hash(state);
+    }
+}
+
+struct OrdTexGen(TexGenEq);
+
+impl PartialEq for OrdTexGen {
+    fn eq(&self, other: &Self) -> bool {
+        self.0
+            .plane_x
+            .normal
+            .x
+            .abs_diff_eq(&other.0.plane_x.normal.x, 1e-5)
+            && self
+                .0
+                .plane_x
+                .normal
+                .y
+                .abs_diff_eq(&other.0.plane_x.normal.y, 1e-5)
+            && self
+                .0
+                .plane_x
+                .normal
+                .z
+                .abs_diff_eq(&other.0.plane_x.normal.z, 1e-5)
+            && self
+                .0
+                .plane_x
+                .distance
+                .abs_diff_eq(&other.0.plane_x.distance, 1e-5)
+            && self
+                .0
+                .plane_y
+                .normal
+                .x
+                .abs_diff_eq(&other.0.plane_y.normal.x, 1e-5)
+            && self
+                .0
+                .plane_y
+                .normal
+                .y
+                .abs_diff_eq(&other.0.plane_y.normal.y, 1e-5)
+            && self
+                .0
+                .plane_y
+                .normal
+                .z
+                .abs_diff_eq(&other.0.plane_y.normal.z, 1e-5)
+            && self
+                .0
+                .plane_y
+                .distance
+                .abs_diff_eq(&other.0.plane_y.distance, 1e-5)
+    }
+}
+
+impl Eq for OrdTexGen {}
+
+impl Hash for OrdTexGen {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut mul = self
+            .0
+            .plane_x
+            .normal
+            .x
+            .abs()
+            .max(self.0.plane_x.normal.y.abs())
+            .max(self.0.plane_x.normal.z.abs());
+        mul = (mul * 100.0 + 0.5).floor() / 100.0;
+        let val = mul * ((self.0.plane_x.distance.abs() * 100.0 + 0.5).floor() / 100.0);
+        let hash_val = (val as u32) % (1 << 12);
+        hash_val.hash(state);
+
+        // Same for plane y
+        let mut mul = self
+            .0
+            .plane_y
+            .normal
+            .x
+            .abs()
+            .max(self.0.plane_y.normal.y.abs())
+            .max(self.0.plane_y.normal.z.abs());
+
+        mul = (mul * 100.0 + 0.5).floor() / 100.0;
+        let val = mul * ((self.0.plane_y.distance.abs() * 100.0 + 0.5).floor() / 100.0);
         let hash_val = (val as u32) % (1 << 12);
         hash_val.hash(state);
     }
