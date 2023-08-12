@@ -464,27 +464,23 @@ pub fn preprocess_csx(cscene: &mut ConstructorScene) {
                 // Transform the uv axes too
 
                 (f.texgens.plane_x.normal, f.texgens.plane_x.distance) = transform_plane(
-                    axis_u,
                     f.texgens.plane_x.normal,
                     f.texgens.plane_x.distance,
-                    s1,
                     b.transform,
                 );
 
                 // Plane Y
 
-                let s1 = (-1.0 / f.texgens.scale[1]) * (32.0 / f.tex_div[1] as f32);
+                let s1 = (1.0 / f.texgens.scale[1]) * (32.0 / f.tex_div[1] as f32);
                 let s2 = f.texgens.plane_y.distance / f.tex_div[1] as f32;
-                f.texgens.plane_y.normal = axis_v * -s1;
+                f.texgens.plane_y.normal = axis_v * s1;
                 f.texgens.plane_y.distance = s2;
 
                 // Transform the uv axes too
 
                 (f.texgens.plane_y.normal, f.texgens.plane_y.distance) = transform_plane(
-                    axis_v,
                     f.texgens.plane_y.normal,
                     f.texgens.plane_y.distance,
-                    -s1,
                     b.transform,
                 );
             });
@@ -493,18 +489,40 @@ pub fn preprocess_csx(cscene: &mut ConstructorScene) {
 }
 
 fn transform_plane(
-    axis: cgmath::Vector3<f32>,
     normal: Vector3<f32>,
     distance: f32,
-    s: f32,
     transform: Matrix4<f32>,
 ) -> (Vector3<f32>, f32) {
-    let mut o = (axis * distance * (1.0 / -s)).extend(1.0);
-    let mut n = normal.extend(0.0);
-    o = transform * o;
-    n = transform.inverse_transform().unwrap().transpose() * n;
-    let norm = n.truncate();
-    let d = -o.truncate().dot(norm);
+    let col1len = (transform.x.x * transform.x.x
+        + transform.x.y * transform.x.y
+        + transform.x.z * transform.x.z)
+        .sqrt();
+    let col2len = (transform.y.x * transform.y.x
+        + transform.y.y * transform.y.y
+        + transform.y.z * transform.y.z)
+        .sqrt();
+    let col3len = (transform.z.x * transform.z.x
+        + transform.z.y * transform.z.y
+        + transform.z.z * transform.z.z)
+        .sqrt();
+    let sx = normal.x * col1len;
+    let sy = normal.y * col2len;
+    let sz = normal.z * col3len;
+    let rx =
+        transform.x.x * sx / col1len + transform.y.x * sy / col2len + transform.z.x * sz / col3len;
+    let ry =
+        transform.x.y * sx / col1len + transform.y.y * sy / col2len + transform.z.y * sz / col3len;
+    let rz =
+        transform.x.z * sx / col1len + transform.y.z * sy / col2len + transform.z.z * sz / col3len;
+
+    let norm = Point3F::new(rx, ry, rz);
+
+    let d = (-distance * (rx * rx + ry * ry + rz * rz) + distance)
+        - (((rx * ((rx * -distance) + transform.w.x))
+            + (ry * ((ry * -distance) + transform.w.y))
+            + (rz * ((rz * -distance) + transform.w.z)))
+            + distance)
+        + distance;
     return (norm, d);
 }
 
