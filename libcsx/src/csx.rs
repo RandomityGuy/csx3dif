@@ -505,9 +505,9 @@ fn transform_plane(
         + transform.z.y * transform.z.y
         + transform.z.z * transform.z.z)
         .sqrt();
-    let sx = normal.x * col1len;
-    let sy = normal.y * col2len;
-    let sz = normal.z * col3len;
+    let sx = normal.x / col1len;
+    let sy = normal.y / col2len;
+    let sz = normal.z / col3len;
     let rx =
         transform.x.x * sx / col1len + transform.y.x * sy / col2len + transform.z.x * sz / col3len;
     let ry =
