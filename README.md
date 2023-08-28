@@ -34,17 +34,16 @@ Options:
 ## Features
 - Exports malformed brushes without compromise!
 - Entity support
-- PathedInterior support (as subobjects), no path_node support yet.
+- PathedInterior support (as subobjects), path_node entities will belong to the Door_Elevator entity that was added before those path_nodes.
 - Automatic splitting of large CSX files into multiple DIF files
 - (mostly) Working balanced BSP tree for raycasts.
 - Target any version of the Torque Game Engine/Torque3D
 
 ## Not supported features
 - Lighting and Lightmaps
-- Portals
+- Zones and Portals
 - Static Meshes
 - Triggers
-- Path Nodes
 - Vehicle Collision
 
 

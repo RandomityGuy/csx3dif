@@ -52,7 +52,7 @@ impl Into<SplitMethod> for BSPAlgo {
 #[derive(Parser)]
 #[command(name = "csx3dif")]
 #[command(author = "RandomityGuy")]
-#[command(version = "1.0.2")]
+#[command(version = "1.0.3")]
 #[command(about = "Convert Torque Constructor CSX files to Torque DIF files easily!")]
 struct Args {
     filepath: String,
@@ -128,34 +128,30 @@ impl ConsoleProgressListener {
                 if total == 0 {
                     progress_bar.println(status).unwrap();
                     progress_bar.clear().unwrap();
-                } else {
-                    if let Some((bar, ref mut last_updated)) = progress_types.get_mut(&status) {
-                        let recvtime = std::time::Instant::now();
-                        if recvtime.duration_since(*last_updated).as_millis() < 100
-                            && total != current
-                        {
-                            continue;
-                        }
-                        *last_updated = recvtime;
-
-                        bar.set_length(total as u64);
-                        bar.set_position(current as u64);
-                        bar.set_message(status.clone());
-                        if current == total {
-                            bar.finish_with_message(finish_status);
-                            // self.progress_types.remove(&status);
-                        }
-                    } else {
-                        let sty = ProgressStyle::with_template(
-                            "{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}",
-                        )
-                        .unwrap();
-                        let pbar = progress_bar.add(ProgressBar::new(total as u64));
-                        pbar.set_style(sty);
-                        pbar.set_position(current as u64);
-                        pbar.set_message(status.clone());
-                        progress_types.insert(status.clone(), (pbar, std::time::Instant::now()));
+                } else if let Some((bar, ref mut last_updated)) = progress_types.get_mut(&status) {
+                    let recvtime = std::time::Instant::now();
+                    if recvtime.duration_since(*last_updated).as_millis() < 100 && total != current
+                    {
+                        continue;
                     }
+                    *last_updated = recvtime;
+
+                    bar.set_length(total as u64);
+                    bar.set_position(current as u64);
+                    bar.set_message(status.clone());
+                    if current == total {
+                        bar.finish_with_message(finish_status);
+                        // self.progress_types.remove(&status);
+                    }
+                } else {
+                    let sty =
+                        ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                            .unwrap();
+                    let pbar = progress_bar.add(ProgressBar::new(total as u64));
+                    pbar.set_style(sty);
+                    pbar.set_position(current as u64);
+                    pbar.set_message(status.clone());
+                    progress_types.insert(status.clone(), (pbar, std::time::Instant::now()));
                 }
             }
         });

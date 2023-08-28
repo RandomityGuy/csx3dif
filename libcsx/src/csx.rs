@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 
-use cgmath::{EuclideanSpace, InnerSpace, Matrix, Matrix3, Matrix4, Point3, Transform, Vector3};
+use cgmath::{
+    EuclideanSpace, InnerSpace, Matrix, Matrix3, Matrix4, Point3, Rad, Rotation3, Transform,
+    Vector3,
+};
+use dif::interior_path_follower::{InteriorPathFollower, WayPoint};
+use dif::types::QuatF;
 use dif::{
     dif::Dif,
     game_entity::GameEntity,
     interior::Interior,
     io::{Version, Writable},
-    types::{BoxF, MatrixF, PlaneF, Point3F},
+    types::{MatrixF, PlaneF, Point3F},
 };
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -638,6 +643,98 @@ pub fn convert_csx(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+
+    // path_nodes for MPs, they come after the MP entity
+    let path_node_ents = cscene
+        .detail_levels
+        .detail_level
+        .iter()
+        .flat_map(|d| {
+            d.interior_map
+                .entities
+                .entity
+                .iter()
+                .filter(|e| e.classname == "path_node" || e.classname == "Door_Elevator")
+        })
+        .collect::<Vec<_>>();
+    if path_node_ents.len() > 0
+        && path_node_ents
+            .iter()
+            .find_position(|e| e.classname == "Door_Elevator")
+            .is_some()
+    {
+        let mut path_node_groups: HashMap<usize, Vec<&Entity>> = HashMap::new();
+        let mut cur_mp = path_node_ents
+            .iter()
+            .find_position(|e| e.classname == "Door_Elevator")
+            .unwrap()
+            .0;
+        for (i, &e) in path_node_ents.iter().enumerate() {
+            if i < cur_mp {
+                continue; // Skip those path_nodes without any Door_Elevator
+            }
+            if i >= cur_mp && e.classname == "Door_Elevator" {
+                path_node_groups.insert(cur_mp, vec![]);
+                cur_mp = i;
+            }
+            if e.classname == "path_node" {
+                path_node_groups.get_mut(&cur_mp).unwrap().push(e);
+            }
+        }
+
+        dif.interior_path_followers = path_node_groups
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, v))| v.len() != 0)
+            .map(|(i, (&k, v))| {
+                let mut props = path_node_ents[k].properties.clone();
+                props.remove("datablock").unwrap();
+                InteriorPathFollower {
+                    datablock: path_node_ents[k]
+                        .properties
+                        .get("datablock")
+                        .unwrap_or(&"PathedDefault".to_string())
+                        .to_owned(),
+                    properties: props,
+                    name: "MustChange".to_string(),
+                    offset: v[0].origin.unwrap(),
+                    interior_res_index: i as u32,
+                    trigger_ids: vec![],
+                    total_ms: v
+                        .iter()
+                        .map(|v| {
+                            v.properties
+                                .get("next_time")
+                                .unwrap_or(&"0".to_string())
+                                .parse::<u32>()
+                                .unwrap_or(0)
+                        })
+                        .sum(),
+                    way_points: v
+                        .iter()
+                        .map(|v| WayPoint {
+                            ms_to_next: v
+                                .properties
+                                .get("next_time")
+                                .unwrap_or(&"0".to_string())
+                                .parse::<u32>()
+                                .unwrap_or(0),
+
+                            position: v.origin.unwrap(),
+                            smoothing_type: v
+                                .properties
+                                .get("smoothing")
+                                .unwrap_or(&"0".to_string())
+                                .parse::<u32>()
+                                .unwrap_or(0),
+
+                            rotation: QuatF::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), Rad(0.0)),
+                        })
+                        .collect::<Vec<_>>(),
+                }
+            })
+            .collect::<Vec<_>>();
+    }
 
     // progress_fn.progress(0, 0, "Exporting entities".to_string(), "Exported entities");
     //  Do the entities
