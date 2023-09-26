@@ -33,11 +33,7 @@ impl Readable<Trigger> for Trigger {
         Ok(Trigger {
             name: String::read(from, version)?,
             datablock: String::read(from, version)?,
-            properties: if version.engine == EngineVersion::MBG {
-                Dictionary::read(from, version)?
-            } else {
-                Default::default()
-            },
+            properties: Dictionary::read(from, version)?,
             polyhedron: Polyhedron::read(from, version)?,
             offset: Point3F::read(from, version)?,
         })

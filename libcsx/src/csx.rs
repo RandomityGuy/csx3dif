@@ -674,8 +674,8 @@ pub fn convert_csx(
                 continue; // Skip those path_nodes without any Door_Elevator
             }
             if i >= cur_mp && e.classname == "Door_Elevator" {
-                path_node_groups.insert(cur_mp, vec![]);
                 cur_mp = i;
+                path_node_groups.insert(cur_mp, vec![]);
             }
             if e.classname == "path_node" {
                 path_node_groups.get_mut(&cur_mp).unwrap().push(e);
