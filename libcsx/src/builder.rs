@@ -93,7 +93,6 @@ impl DIFBuilder {
                 .poly_list_point_indices
                 .push(PointIndex::from(0));
             self.interior.poly_list_string_characters.push(0);
-            self.interior.hull_indices.push(PointIndex::from(0));
             self.interior.hull_plane_indices.push(PlaneIndex::from(0));
             self.interior
                 .hull_emit_string_indices
@@ -492,10 +491,11 @@ impl DIFBuilder {
             .collect::<Vec<_>>();
 
         // Export hull points
+
+        self.interior
+            .hull_indices
+            .append(&mut hull_exported_points.clone());
         if !self.mb_only {
-            self.interior
-                .hull_indices
-                .append(&mut hull_exported_points.clone());
             self.interior
                 .poly_list_point_indices
                 .append(&mut hull_exported_points.clone());

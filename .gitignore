@@ -13,3 +13,5 @@ dif2csx
 *.txt
 .idea
 *.exe
+libdifbuilder
+obj3dif
