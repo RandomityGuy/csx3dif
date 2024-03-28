@@ -2,19 +2,21 @@
   "name": "csx3dif-web",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "build": "webpack"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "parcel": "^2.9.3",
-    "ts-loader": "^9.4.4",
     "typescript": "^5.2.2",
-    "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.4"
+    "vite": "^5.2.6",
+    "vite-plugin-cross-origin-isolation": "^0.1.6",
+    "vite-plugin-top-level-await": "^1.4.1",
+    "vite-plugin-wasm": "^3.3.0"
   },
   "dependencies": {
     "comlink": "^4.4.1",
-    "csx3dif-web": "file:../../pkg",
-    "webpack-dev-server": "^4.15.1"
+    "csx3dif-web": "file:../../pkg"
   }
 }
