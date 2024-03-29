@@ -1,89 +1,191 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>csx3dif</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
-    integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
-    crossorigin="anonymous"></script>
+  <link href="src/style.css" rel="stylesheet" />
 </head>
 
 <template id="progressbartemplate">
-  <div class="progress mb-1" role="progressbar">
-    <div class="progress-bar"></div>
+  <label class="label">
+    <p class="w-2/5" id="progresslabel"></p>
+    <progress class="progress w-full" value="0" max="1">
+    </progress>
+  </label>
+</template>
+
+<template id="exporttemplate">
+  <div class="card bg-base-300 shadow-xl m-4">
+    <div class="card-body">
+      <div tabindex="0" class="collapse">
+
+        <input type="checkbox" />
+        <div class="collapse-title font-medium">
+          <h3 class="card-title"></h3>
+          <div id="progresslist">
+
+          </div>
+        </div>
+        <div class="collapse-content form-control">
+
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="reporttemplate">
+  <div class="form-control">
+    <span id="reportname">Report 1</span>
+    <div class="flex flex-row items-center justify-center gap-8">
+      <span id="balancefactor">
+        <div class="tooltip" data-tip="The balance factor of the BSP tree. Lower magnitude (absolute value) is better.">
+          Balance Factor: 4
+        </div>
+      </span>
+      <label>
+        <div class="tooltip" data-tip="How many surfaces are covered by the BSP Tree">
+          BSP Coverage
+        </div>
+      </label>
+      <div class="flex flex-col">
+        <div class="radial-progress text-primary" style="--value: 70;" role="progressbar">70%</div>
+        <div id="coveragetext"></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <body>
-  <div class="container">
-    <h1 class="text-center">
-      csx3dif
-    </h1>
-    <div class="row">
-      <div class="input-group mb-3">
-        <label class="input-group-text" for="csxupload">Upload</label>
-        <input type="file" class="form-control" id="csxupload">
+  <div class="hero min-h-screen bg-base-200">
+    <div class="hero-content text-center flex-col w-full">
+      <div class="max-w-md">
+        <h1 class="text-5xl font-bold">csx3dif</h1>
+        <h2 class="text-lg">A 🔥 blazingly fast 🔥 CSX to DIF file converter <br> written in Rust 🦀</h2>
       </div>
-    </div>
-    <h2 class="text-center">Options</h2>
-    <div class="row">
-      <div class="input-group mb-3">
-        <label class="input-group-text" for="versionSelect">Version</label>
-        <select class="form-select" id="engineSelect">
-          <option value="MBG" selected>MBG</option>
-          <option value="TGE">TGE</option>
-          <option value="TGEA">TGEA</option>
-          <option value="T3D">T3D</option>
-        </select>
-        <select class="form-select w-50" id="versionSelect">
-          <option value="0" selected>0</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-          <option value="6">6</option>
-          <option value="7">7</option>
-          <option value="8">8</option>
-          <option value="9">9</option>
-          <option value="10">10</option>
-          <option value="11">11</option>
-          <option value="12">12</option>
-          <option value="13">13</option>
-          <option value="14">14</option>
-        </select>
-        <span class="input-group-text">Optimize for marble blast</span>
-        <div class="input-group-text">
-          <input class="form-check-input mt-0" type="checkbox" value="mbonly" id="mbonly" checked>
-        </div>
-      </div>
-      <div class="input-group mb-3">
-        <label class="input-group-text" for="bspSelect">BSP Algorithm</label>
-        <select class="form-select" id="bspSelect">
-          <option value="0" selected>Exhaustive</option>
-          <option value="1">Sampling</option>
-          <option value="2">None</option>
-        </select>
-        <label class="input-group-text" for="ptep">Point Epsilon</label>
-        <input type="number" placeholder="Point Epsilon" class="form-control" value="0.000001" id="ptep">
-        <label class="input-group-text" for="plep">Plane Epsilon</label>
-        <input type="number" placeholder="Plane Epsilon" class="form-control" value="0.0001" id="plep">
-      </div>
-      <input type="submit" class="btn btn-primary" id="submitBtn" value="Convert">
-    </div>
-    <div class="row py-5">
-      <div>
-        <div id="progresslist">
+      <div class="modal-box overflow-visible">
+        <p class="py-4">
+          Please upload a CSX file.
+        </p>
+        <p class="py-2">
+          <input type="file" class="file-input file-input-bordered p-2 w-full" id="csxupload" multiple="true">
+        </p>
 
+        <div tabindex="0" class="collapse collapse-arrow bg-base-300 overflow-visible">
+          <input type="checkbox" />
+          <div class="collapse-title font-medium">Advanced Options</div>
+          <div class="collapse-content form-control">
+            <div class="form-control">
+              <label class="label cursor-pointer" for="versionSelect">
+                <div class="tooltip" data-tip="The version of Torque Game Engine to target.">
+                  Version
+                </div>
+                <div class="join join-horizontal">
+                  <select class="select join-item" id="engineSelect">
+                    <option value="MBG" selected>MBG</option>
+                    <option value="TGE">TGE</option>
+                    <option value="TGEA">TGEA</option>
+                    <option value="T3D">T3D</option>
+                  </select>
+                  <select class="select join-item" id="versionSelect">
+                    <option value="0" selected>0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                    <option value="9">9</option>
+                    <option value="10">10</option>
+                    <option value="11">11</option>
+                    <option value="12">12</option>
+                    <option value="13">13</option>
+                    <option value="14">14</option>
+                  </select>
+                </div>
+              </label>
+            </div>
+            <div class="form-control">
+              <label class="label cursor-pointer">
+                <div class="tooltip"
+                  data-tip="Enabling this option reduces the file size of the converted DIF by removing data that Marble Blast does not use. Please disable this option if you want your DIFs to work for games other than Marble Blast">
+                  Optimize for Marble Blast
+                </div>
+                <input type="checkbox" checked value="mbonly" id="mbonly" class="checkbox" />
+              </label>
+            </div>
+            <div class="form-control">
+              <style>
+                .bsp-label::before {
+                  max-width: unset;
+                  white-space: pre;
+                }
+              </style>
+              <label class="label cursor-pointer" for="bspSelect">
+                <div class="tooltip bsp-label" data-html="true"
+                  data-tip="The algorithm used to build the BSP tree necessary for raycasting.&#010;Exhaustive: Try an exhaustive search for best splitting planes (Slow, More Optimal)&#010;Sampling: Use a random sample of planes to determine best splitting plane (Fast, Suboptimal)&#010;None: Do not create a BSP tree, disables raycasting for the interior. Drop To Ground or Cannon guides will not function. (Very Fast, Worst Case)">
+                  BSP Algorithm
+                </div>
+                <select class="select" id="bspSelect">
+                  <option value="0" selected>Exhaustive</option>
+                  <option value="1">Sampling</option>
+                  <option value="2">None</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-control">
+              <label class="label cursor-pointer" for="ptep">
+                <div class="tooltip" data-tip="How close to points need to be to be considered equal.">
+                  Point Epsilon
+                </div>
+                <input class="input" type="number" placeholder="Point Epsilon" class="form-control" value="0.000001"
+                  id="ptep">
+              </label>
+            </div>
+            <div class="form-control">
+              <label class="label cursor-pointer" for="plep">
+                <div class="tooltip" data-tip="How close to planes/faces need to be to be considered equal.">
+                  Plane Epsilon
+                </div>
+                <input class="input" type="number" placeholder="Plane Epsilon" class="form-control" value="0.0001"
+                  id="plep">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="py-2">
+          <button class="btn btn-success w-full" id="submitBtn" disabled>Convert</button>
         </div>
       </div>
-      <textarea class="form-control border-0" style="overflow-y: auto; height: 12em;" id="bsp-report"
-        disabled=""></textarea>
+      <div class="modal-box max-w-none" id="exportcontent" hidden>
+        <h1 class="text-2xl font-bold">Results</h1>
+      </div>
     </div>
+  </div>
+  <div class="fixed top-5 right-8">
+    <label class="flex cursor-pointer gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+      <input type="checkbox" value="light" class="toggle theme-controller" />
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5" />
+        <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+      </svg>
+
+    </label>
+  </div>
+  <div
+    class="w-full h-full top-0 left-0 z-50 box-border border-x-8 border-y-8 fixed backdrop-blur-md text-lg border-base-content border-dashed rounded-md flex items-center justify-center"
+    id="dndoverlay" style="display: none;">
+    Drop your CSX files here
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

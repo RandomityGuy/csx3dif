@@ -1,4 +1,4 @@
-import { convert_csx} from "csx3dif-web";
+import { convert_csx } from "csx3dif-web";
 
 const worker = new Worker(new URL('./worker.ts', import.meta.url), {
   type: 'module',
@@ -12,41 +12,115 @@ const mbonly = document.querySelector("#mbonly") as HTMLInputElement;
 const bspSelect = document.querySelector("#bspSelect") as HTMLInputElement;
 const ptep = document.querySelector("#ptep") as HTMLInputElement;
 const plep = document.querySelector("#plep") as HTMLInputElement;
-const progressList = document.querySelector('#progresslist') as HTMLDivElement;
-const bspReport = document.querySelector("#bsp-report") as HTMLTextAreaElement;
-let progressBars: Map<string, { bar: HTMLDivElement, progress: number }> = new Map();
+const exportContent = document.querySelector("#exportcontent") as HTMLDivElement;
+const dndOverlay = document.querySelector("#dndoverlay") as HTMLDivElement;
+let csxFiles: Map<string, CSXEntry> = new Map();
 
-let filename = "";
+interface CSXEntry {
+  filename: string,
+  progressBars: Map<string, { bar: HTMLProgressElement, progress: number, status: HTMLParagraphElement }>,
+  progressList: HTMLDivElement,
+  cardElement: HTMLDivElement
+}
+
+const createCSXCard = (filename: string) => {
+  let clone = (document.querySelector("#exporttemplate") as HTMLTemplateElement).content.cloneNode(true) as Node;
+  exportContent.append(clone);
+  (exportContent.lastElementChild.querySelector(".card-title") as HTMLHeadingElement).textContent = filename;
+  let entry: CSXEntry = {
+    filename: filename,
+    progressBars: new Map(),
+    progressList: exportContent.lastElementChild.querySelector('#progresslist') as HTMLDivElement,
+    cardElement: exportContent.lastElementChild as HTMLDivElement
+  }
+  return entry;
+}
+
+
+window.addEventListener('dragenter', (e) => {
+  dndOverlay.style.display = "flex";
+});
+
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dndOverlay.style.display = "none";
+  for (let file of e.dataTransfer.files) {
+    if (!file.name.endsWith(".csx")) continue;
+    let filename = file.name;
+    exportContent.hidden = false;
+
+    let entry = createCSXCard(filename);
+    csxFiles.set(filename, entry);
+    worker.postMessage([file, filename, engineSelect.value, versionSelect.value, mbonly.checked, bspSelect.value, ptep.value, plep.value]);
+  }
+});
+
+window.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+
+dndOverlay.addEventListener('dragleave', (e) => {
+  dndOverlay.style.display = "none";
+})
+
+uploadInput.addEventListener('change', (e) => {
+  if (uploadInput.files.length !== 0) {
+    submitBtn.disabled = false;
+  } else {
+    submitBtn.disabled = true;
+  }
+});
+
 
 submitBtn.addEventListener('click', async (e) => {
   e.preventDefault();
-  let file = uploadInput.files?.item(0);
-  filename = file.name;
-  progressList.innerHTML = "";
-  bspReport.value = "";
-  progressBars.clear();
-  worker.postMessage([file, engineSelect.value, versionSelect.value, mbonly.checked, bspSelect.value, ptep.value, plep.value]);
+  for (let file of uploadInput.files) {
+    if (!file.name.endsWith(".csx")) continue;
+    let filename = file.name;
+    exportContent.hidden = false;
+
+    let entry = createCSXCard(filename);
+    csxFiles.set(filename, entry);
+    worker.postMessage([file, filename, engineSelect.value, versionSelect.value, mbonly.checked, bspSelect.value, ptep.value, plep.value]);
+  }
 })
 
 
 worker.addEventListener('message', (e) => {
   if (e.data[0] == 0) {
-    let [cmd, current, total, status, finishStatus] = e.data;
+    let [cmd, filename, current, total, status, finishStatus] = e.data;
+    let entry = csxFiles.get(filename);
+
+    // console.log(`cmd: ${cmd}, current: ${current}, total: ${total}, status: ${status}, finishStatus: ${finishStatus}`);
     if (total == 0) return;
-    if (progressBars.has(status)) {
-      let progress = progressBars.get(status);
+    if (entry.progressBars.has(status)) {
+      let progress = entry.progressBars.get(status);
       progress.progress = current / total;
     } else {
       let clone = (document.querySelector("#progressbartemplate") as HTMLTemplateElement).content.cloneNode(true) as Node;
-      progressList.append(clone);
-      progressBars.set(status, { bar: progressList.lastElementChild.querySelector(".progress-bar") as HTMLDivElement, progress: current / total });
+      entry.progressList.append(clone);
+      entry.progressBars.set(status, {
+        bar: entry.progressList.lastElementChild.querySelector("progress") as HTMLProgressElement,
+        status: entry.progressList.lastElementChild.querySelector("#progresslabel") as HTMLParagraphElement,
+        progress: current / total
+      });
     }
-    for (const [stat, val] of progressBars) {
-      val.bar.style.width = `${(val.progress * 100)}%`;
-      val.bar.textContent = stat;
+    for (const [stat, val] of entry.progressBars) {
+      val.bar.value = val.progress;
+      val.status.textContent = stat;
+      // val.bar.style.width = `${(val.progress * 100)}%`;
+      // val.bar.textContent = stat;
     }
   } else if (e.data[0] == 1) {
-    let [cmd, result] = e.data;
+    let [cmd, filename, result] = e.data;
+
+    // remove the progress bars
+    let entry = csxFiles.get(filename);
+    entry.progressList.innerHTML = "";
+    entry.progressList.hidden = true;
+    // Add the completed
+    (entry.cardElement.querySelector(".card-title") as HTMLHeadingElement).innerHTML = `${filename} <p class="text-right">Completed</p>`;
+
     let difs = result.data;
     let i = 0;
     let basename = filename.replace(".csx", "");
@@ -63,13 +137,18 @@ worker.addEventListener('message', (e) => {
       URL.revokeObjectURL(u);
       i++;
     }
+    const bspReportsElement = entry.cardElement.querySelector(".collapse-content") as HTMLDivElement;
     i = 0;
     for (const r of result.bsp_reports) {
-      let reportData = "";
-      reportData += `BSP Report ${i + 1}:\n`;
-      reportData += `Raycast Coverage: ${r.hit}/${r.total} (${r.surface_area_percentage}% of surface area)\n`;
-      reportData += `Balance Factor: ${r.balance_factor}\n`;
-      bspReport.value += reportData;
+      let clone = (document.querySelector("#reporttemplate") as HTMLTemplateElement).content.cloneNode(true) as Node;
+      bspReportsElement.append(clone);
+      let elem = bspReportsElement.lastElementChild as HTMLDivElement;
+      elem.querySelector("#reportname").textContent = `Report ${i + 1}`;
+      elem.querySelector("#balancefactor").textContent = `Balance Factor: ${r.balance_factor}`;
+      elem.querySelector(".radial-progress").textContent = `${Math.trunc(r.surface_area_percentage)}%`;
+      (elem.querySelector(".radial-progress") as HTMLDivElement).style.setProperty("--value", `${r.surface_area_percentage}`);
+      elem.querySelector("#coveragetext").textContent = `${r.hit}/${r.total}`;
+      // bspReport.value += reportData;
       i++;
     }
   }
