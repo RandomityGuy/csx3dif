@@ -43,6 +43,10 @@ pub struct DIFBuilder {
     emit_string_map: HashMap<Vec<u8>, EmitStringIndex>,
     mb_only: bool,
     bsp_report: BSPReport,
+    ambient_color: Point3F,
+    emergency_ambient_color: Point3F,
+    lumel_scale: u32,
+    geometry_scale: u32,
 }
 
 pub static mut POINT_EPSILON: f32 = 1e-6;
@@ -67,11 +71,28 @@ impl DIFBuilder {
                 total: 0,
                 hit_area_percentage: 0.0,
             },
+            ambient_color: Point3F::new(0.0, 0.0, 0.0),
+            emergency_ambient_color: Point3F::new(0.0, 0.0, 0.0),
+            lumel_scale: 8,
+            geometry_scale: 32,
         };
     }
 
     pub fn add_brush(&mut self, brush: &Brush) {
         self.brushes.push(brush.clone());
+    }
+
+    pub fn set_ambient(&mut self, ambient: Point3F, emergency_ambient: Point3F) {
+        self.ambient_color = ambient;
+        self.emergency_ambient_color = emergency_ambient;
+    }
+
+    pub fn set_lumel_scale(&mut self, scale: u32) {
+        self.lumel_scale = scale;
+    }
+
+    pub fn set_geometry_scale(&mut self, scale: u32) {
+        self.geometry_scale = scale;
     }
 
     pub fn build(
@@ -107,11 +128,28 @@ impl DIFBuilder {
         } else {
             // Add the blank lightmap so we don't crash
             self.interior.light_maps.push(LightMap {
-                light_map: empty_lightmap(),
+                light_map: empty_lightmap(
+                    self.ambient_color.x as u8,
+                    self.ambient_color.y as u8,
+                    self.ambient_color.z as u8,
+                ),
                 light_dir_map: None,
                 keep_light_map: 0,
             });
+            self.interior.base_ambient_color = ColorI {
+                r: self.ambient_color.x as u8,
+                g: self.ambient_color.y as u8,
+                b: self.ambient_color.z as u8,
+                a: 255,
+            };
+            self.interior.alarm_ambient_color = ColorI {
+                r: self.emergency_ambient_color.x as u8,
+                g: self.emergency_ambient_color.y as u8,
+                b: self.emergency_ambient_color.z as u8,
+                a: 255,
+            };
             self.process_hull_poly_lists(); // Hull poly lists
+            self.compute_lightmaps(); // lightmaps
         }
         // self.calculate_bsp_coverage();
         let balance_factor_save = self.bsp_report.balance_factor;
@@ -429,7 +467,7 @@ impl DIFBuilder {
             surface_flags: SurfaceFlags::OUTSIDE_VISIBLE,
             fan_mask: fan_mask as _,
             light_map: SurfaceLightMap {
-                final_word: 0 | (0x8 << 6) | (0x8), // stEnc, lmapLogScaleX, lmapLogScaleY
+                final_word: 0, // stEnc, lmapLogScaleX, lmapLogScaleY
                 tex_gen_x_distance: 0.0,
                 tex_gen_y_distance: 0.0,
             },
@@ -437,8 +475,8 @@ impl DIFBuilder {
             light_state_info_start: 0,
             map_offset_x: 0,
             map_offset_y: 0,
-            map_size_x: 0,
-            map_size_y: 0,
+            map_size_x: 32,
+            map_size_y: 32,
             brush_id: 0,
         };
 
@@ -1114,6 +1152,178 @@ impl DIFBuilder {
             (hit as f32 / self.interior.surfaces.len() as f32) * 100.0
         );
     }
+
+    fn compute_lightmaps(&mut self) {
+        for surf_idx in 0..self.interior.surfaces.len() {
+            self.fill_in_lightmap_info(surf_idx);
+        }
+    }
+
+    fn fill_in_lightmap_info(&mut self, surface_index: usize) {
+        let axises = vec![
+            Point3F::new(1.0, 0.0, 0.0),
+            Point3F::new(0.0, 1.0, 0.0),
+            Point3F::new(0.0, 0.0, 1.0),
+        ];
+        let mut best_dot = -1.0;
+        let mut best_index = 0;
+        for i in 0..3 {
+            let mut first_normal =
+                self.interior.normals[*self.interior.planes[(self.interior.surfaces[surface_index]
+                    .plane_index
+                    .into_inner()
+                    & !0x8000) as usize]
+                    .normal_index
+                    .inner() as usize]
+                    .clone();
+            if (self.interior.surfaces[surface_index]
+                .plane_index
+                .into_inner()
+                & 0x8000)
+                > 0
+            {
+                first_normal *= -1.0;
+            }
+
+            let dot = first_normal.dot(axises[i]);
+            if dot > best_dot {
+                best_dot = dot;
+                best_index = i;
+            }
+        }
+        let mut sc = 0;
+        let mut tc = 0;
+
+        if axises[best_index].x != 0.0 {
+            sc = 1;
+            tc = 2;
+        } else if axises[best_index].y != 0.0 {
+            sc = 0;
+            tc = 2;
+        } else {
+            sc = 0;
+            tc = 1;
+        }
+
+        let st_enc = match (sc, tc) {
+            (0, 1) => 0,
+            (0, 2) => 1,
+            (1, 0) => 2,
+            (1, 2) => 3,
+            (2, 0) => 4,
+            (2, 1) => 5,
+            _ => panic!("Invalid axis combination"),
+        };
+
+        let mut coords = vec![];
+        let surface = &mut self.interior.surfaces[surface_index];
+        for i in 0..surface.winding_count {
+            coords.push(
+                self.interior.points[self.interior.indices
+                    [surface.winding_start.into_inner() as usize + i as usize]
+                    .into_inner() as usize]
+                    .x,
+            );
+            coords.push(
+                self.interior.points[self.interior.indices
+                    [surface.winding_start.into_inner() as usize + i as usize]
+                    .into_inner() as usize]
+                    .y,
+            );
+            coords.push(
+                self.interior.points[self.interior.indices
+                    [surface.winding_start.into_inner() as usize + i as usize]
+                    .into_inner() as usize]
+                    .z,
+            );
+        }
+
+        let mut min_s = 1e10;
+        let mut min_s_index = 0;
+
+        let mut min_t = 1e10;
+        let mut min_t_index = 0;
+
+        let mut max_s = -1e10;
+        let mut max_s_index = 0;
+
+        let mut max_t = -1e10;
+        let mut max_t_index = 0;
+
+        for i in 0..surface.winding_count {
+            if coords[3 * i as usize + sc] < min_s {
+                min_s = coords[3 * i as usize + sc];
+                min_s_index = i;
+            }
+
+            if coords[3 * i as usize + sc] > max_s {
+                max_s = coords[3 * i as usize + sc];
+                max_s_index = i;
+            }
+
+            if coords[3 * i as usize + tc] < min_t {
+                min_t = coords[3 * i as usize + tc];
+                min_t_index = i;
+            }
+
+            if coords[3 * i as usize + tc] > max_t {
+                max_t = coords[3 * i as usize + tc];
+                max_t_index = i;
+            }
+        }
+
+        let virtual_min = [
+            coords[(min_s_index * 3 + sc as u32) as usize],
+            coords[(min_t_index * 3 + tc as u32) as usize],
+        ];
+        let virtual_max = [
+            coords[(max_s_index * 3 + sc as u32) as usize],
+            coords[(max_t_index * 3 + tc as u32) as usize],
+        ];
+
+        let mut desired_start = [0.0; 2];
+        let mut desired_end = [0.0; 2];
+
+        for i in 0..2 {
+            desired_start[i] = virtual_min[i] / self.lumel_scale as f32;
+            desired_end[i] = virtual_max[i] / self.lumel_scale as f32;
+            if desired_start[i] - desired_start[i].floor() < 0.5 {
+                desired_start[i] = (desired_start[i] - 1.0).floor();
+            } else {
+                desired_start[i] = desired_start[i].floor();
+            }
+
+            if desired_end[i] - desired_end[i].ceil() < 0.5 {
+                desired_end[i] = (desired_end[i] + 1.0).ceil();
+            } else {
+                desired_end[i] = desired_end[i].ceil();
+            }
+        }
+
+        let lmap_dim_x = (desired_end[0] - desired_start[0] + 0.5) as u32;
+        let lmap_dim_y = (desired_end[1] - desired_start[1] + 0.5) as u32;
+
+        //desired_start[0] *= self.lumel_scale as f32;
+        //desired_start[1] *= self.lumel_scale as f32;
+        //desired_end[0] *= self.lumel_scale as f32;
+        // desired_end[1] *= self.lumel_scale as f32;
+
+        surface.light_map.tex_gen_x_distance = -desired_start[0] / (256.0);
+        surface.light_map.tex_gen_y_distance = -desired_start[1] / (256.0);
+
+        let sc_scale = 1.0 / (256.0 * self.lumel_scale as f32);
+        let tc_scale = 1.0 / (256.0 * self.lumel_scale as f32);
+
+        let inv_scale_x = ((1.0 / sc_scale) + 0.5) as u32;
+        let inv_scale_y = ((1.0 / tc_scale) + 0.5) as u32;
+        let log_scale_x = inv_scale_x.ilog2();
+        let log_scale_y = inv_scale_y.ilog2();
+
+        self.interior.surfaces[surface_index].light_map.final_word = (st_enc << 13)
+            | ((log_scale_x & 0b111111) << 6) as u16
+            | (log_scale_y & 0b111111) as u16;
+        //  stEnc | logScaleX | logScaleY
+    }
 }
 
 pub fn windows2_wrap<T>(input: &Vec<T>) -> Vec<(&T, &T)>
@@ -1237,14 +1447,16 @@ fn empty_interior() -> Interior {
     }
 }
 
-fn empty_lightmap() -> PNG {
+fn empty_lightmap(r: u8, g: u8, b: u8) -> PNG {
     let mut img = ImageBuffer::new(256, 256);
     for (x, y, pixel) in img.enumerate_pixels_mut() {
-        *pixel = image::Luma([0]);
+        *pixel = image::Rgb([r, g, b]);
     }
     let mut v = Vec::new();
     let png = PngEncoder::new(v.by_ref());
-    png.write_image(&img, 256, 256, image::ExtendedColorType::L8);
+    let _ = png
+        .write_image(&img, 256, 256, image::ExtendedColorType::Rgb8)
+        .unwrap();
 
     PNG { data: v }
 }

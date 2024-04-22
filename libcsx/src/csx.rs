@@ -44,6 +44,26 @@ pub struct DetailLevel {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct InteriorMap {
+    #[serde(rename = "@brushScale")]
+    pub brush_scale: u32,
+
+    #[serde(rename = "@lightScale")]
+    pub light_scale: u32,
+
+    #[serde(
+        rename = "@ambientColor",
+        serialize_with = "serialize_point",
+        deserialize_with = "deserialize_point"
+    )]
+    pub ambient_color: Point3F,
+
+    #[serde(
+        rename = "@ambientColorEmerg",
+        serialize_with = "serialize_point",
+        deserialize_with = "deserialize_point"
+    )]
+    pub ambient_color_emerg: Point3F,
+
     pub entities: Entities,
     pub brushes: Brushes,
 }
@@ -461,7 +481,8 @@ pub fn preprocess_csx(cscene: &mut ConstructorScene) {
 
                 // Plane X
 
-                let s1 = (1.0 / f.texgens.scale[0]) * (32.0 / f.tex_div[0] as f32);
+                let s1 = (1.0 / f.texgens.scale[0])
+                    * (d.interior_map.brush_scale as f32 / f.tex_div[0] as f32);
                 let s2 = f.texgens.plane_x.distance / f.tex_div[0] as f32;
                 f.texgens.plane_x.normal = axis_u * s1;
                 f.texgens.plane_x.distance = s2;
@@ -476,7 +497,8 @@ pub fn preprocess_csx(cscene: &mut ConstructorScene) {
 
                 // Plane Y
 
-                let s1 = (1.0 / f.texgens.scale[1]) * (32.0 / f.tex_div[1] as f32);
+                let s1 = (1.0 / f.texgens.scale[1])
+                    * (d.interior_map.brush_scale as f32 / f.tex_div[1] as f32);
                 let s2 = f.texgens.plane_y.distance / f.tex_div[1] as f32;
                 f.texgens.plane_y.normal = axis_v * s1;
                 f.texgens.plane_y.distance = s2;
@@ -561,6 +583,10 @@ pub fn convert_csx(
             let mut split_interiors = vec![];
             let mut cur_builder = DIFBuilder::new(mb_only);
             let mut cur_face_count = 0;
+            cur_builder.set_ambient(
+                d.interior_map.ambient_color.clone(),
+                d.interior_map.ambient_color_emerg.clone(),
+            );
             for b in d
                 .interior_map
                 .brushes
@@ -578,6 +604,12 @@ pub fn convert_csx(
                     );
                     split_interiors.push(cur_builder.build(progress_fn));
                     cur_builder = DIFBuilder::new(mb_only);
+                    cur_builder.set_ambient(
+                        d.interior_map.ambient_color.clone(),
+                        d.interior_map.ambient_color_emerg.clone(),
+                    );
+                    cur_builder.set_lumel_scale(d.interior_map.light_scale);
+                    cur_builder.set_geometry_scale(d.interior_map.brush_scale);
                     cur_face_count = 0;
                 }
                 cur_face_count += face_count;
@@ -627,6 +659,12 @@ pub fn convert_csx(
                 .enumerate()
                 .map(|(i, (_, g))| {
                     let mut builder = DIFBuilder::new(mb_only);
+                    builder.set_ambient(
+                        d.interior_map.ambient_color.clone(),
+                        d.interior_map.ambient_color_emerg.clone(),
+                    );
+                    builder.set_lumel_scale(d.interior_map.light_scale);
+                    builder.set_geometry_scale(d.interior_map.brush_scale);
                     g.for_each(|b| {
                         builder.add_brush(b);
                     });
