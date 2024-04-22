@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Cursor;
@@ -18,6 +19,12 @@ use dif::types::*;
 use image::codecs::png::PngEncoder;
 use image::ImageBuffer;
 use image::ImageEncoder;
+use rectangle_pack::contains_smallest_box;
+use rectangle_pack::pack_rects;
+use rectangle_pack::volume_heuristic;
+use rectangle_pack::GroupedRectsToPlace;
+use rectangle_pack::RectToInsert;
+use rectangle_pack::TargetBin;
 use std::hash::Hash;
 
 pub trait ProgressEventListener {
@@ -126,16 +133,6 @@ impl DIFBuilder {
                 .push(EmitStringIndex::from(0));
             self.interior.convex_hull_emit_string_characters.push(0);
         } else {
-            // Add the blank lightmap so we don't crash
-            self.interior.light_maps.push(LightMap {
-                light_map: empty_lightmap(
-                    self.ambient_color.x as u8,
-                    self.ambient_color.y as u8,
-                    self.ambient_color.z as u8,
-                ),
-                light_dir_map: None,
-                keep_light_map: 0,
-            });
             self.interior.base_ambient_color = ColorI {
                 r: self.ambient_color.x as u8,
                 g: self.ambient_color.y as u8,
@@ -1154,12 +1151,69 @@ impl DIFBuilder {
     }
 
     fn compute_lightmaps(&mut self) {
+        let mut rects_to_place: GroupedRectsToPlace<usize, ()> = GroupedRectsToPlace::new();
+        let mut lmaps_needed = 1;
+        let mut area_remaining = (256 * 256) as i32;
         for surf_idx in 0..self.interior.surfaces.len() {
-            self.fill_in_lightmap_info(surf_idx);
+            let lmap_area = self.fill_in_lightmap_info(surf_idx, &mut rects_to_place);
+            if area_remaining - lmap_area < 0 {
+                lmaps_needed += 1;
+                area_remaining = (256 * 256) as i32;
+            }
+            area_remaining -= lmap_area;
+        }
+        let mut target_bins = BTreeMap::new();
+        for i in 0..lmaps_needed {
+            target_bins.insert(i, TargetBin::new(256, 256, 255));
+        }
+
+        // Pack the lmaps
+        let rect_placements = pack_rects(
+            &rects_to_place,
+            &mut target_bins,
+            &volume_heuristic,
+            &contains_smallest_box,
+        )
+        .unwrap();
+
+        // Add the lightmaps now
+        for _ in 0..lmaps_needed {
+            // Add the blank lightmap so we don't crash
+            self.interior.light_maps.push(LightMap {
+                light_map: empty_lightmap(
+                    self.ambient_color.x as u8,
+                    self.ambient_color.y as u8,
+                    self.ambient_color.z as u8,
+                ),
+                light_dir_map: None,
+                keep_light_map: 0,
+            });
+        }
+
+        // Then pack
+        for surf_idx in 0..self.interior.surfaces.len() {
+            let (lmap_index, packed_loc) =
+                rect_placements.packed_locations().get(&surf_idx).unwrap();
+            self.interior.normal_lmap_indices[surf_idx] = LMapIndex::new(*lmap_index);
+
+            self.interior.surfaces[surf_idx].map_size_x = packed_loc.width();
+            self.interior.surfaces[surf_idx].map_size_y = packed_loc.height();
+            self.interior.surfaces[surf_idx].map_offset_x = packed_loc.x();
+            self.interior.surfaces[surf_idx].map_offset_y = packed_loc.y();
+            self.interior.surfaces[surf_idx]
+                .light_map
+                .tex_gen_x_distance += packed_loc.x() as f32 / 256.0;
+            self.interior.surfaces[surf_idx]
+                .light_map
+                .tex_gen_y_distance += packed_loc.y() as f32 / 256.0;
         }
     }
 
-    fn fill_in_lightmap_info(&mut self, surface_index: usize) {
+    fn fill_in_lightmap_info(
+        &mut self,
+        surface_index: usize,
+        rects_to_place: &mut GroupedRectsToPlace<usize, ()>,
+    ) -> i32 {
         let axises = vec![
             Point3F::new(1.0, 0.0, 0.0),
             Point3F::new(0.0, 1.0, 0.0),
@@ -1323,6 +1377,14 @@ impl DIFBuilder {
             | ((log_scale_x & 0b111111) << 6) as u16
             | (log_scale_y & 0b111111) as u16;
         //  stEnc | logScaleX | logScaleY
+
+        rects_to_place.push_rect(
+            surface_index,
+            None,
+            RectToInsert::new(lmap_dim_x, lmap_dim_y, 255),
+        );
+
+        lmap_dim_x as i32 * lmap_dim_y as i32
     }
 }
 

@@ -504,6 +504,7 @@ dependencies = [
  "quick-xml",
  "rand 0.8.5",
  "rayon",
+ "rectangle-pack",
  "serde",
 ]
 
@@ -995,6 +996,12 @@ checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
 dependencies = [
  "rand_core 0.3.1",
 ]
+
+[[package]]
+name = "rectangle-pack"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0d463f2884048e7153449a55166f91028d5b0ea53c79377099ce4e8cf0cf9bb"
 
 [[package]]
 name = "rgb"
