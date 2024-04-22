@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::Cursor;
+use std::io::Read;
+use std::io::Write;
 
 use crate::bsp::build_bsp;
 use crate::bsp::CSXBSPNode;
@@ -12,6 +15,9 @@ use cgmath::InnerSpace;
 use cgmath::Vector3;
 use dif::interior::*;
 use dif::types::*;
+use image::codecs::png::PngEncoder;
+use image::ImageBuffer;
+use image::ImageEncoder;
 use std::hash::Hash;
 
 pub trait ProgressEventListener {
@@ -98,6 +104,14 @@ impl DIFBuilder {
                 .hull_emit_string_indices
                 .push(EmitStringIndex::from(0));
             self.interior.convex_hull_emit_string_characters.push(0);
+        } else {
+            // Add the blank lightmap so we don't crash
+            self.interior.light_maps.push(LightMap {
+                light_map: empty_lightmap(),
+                light_dir_map: None,
+                keep_light_map: 0,
+            });
+            self.process_hull_poly_lists(); // Hull poly lists
         }
         // self.calculate_bsp_coverage();
         let balance_factor_save = self.bsp_report.balance_factor;
@@ -415,7 +429,7 @@ impl DIFBuilder {
             surface_flags: SurfaceFlags::OUTSIDE_VISIBLE,
             fan_mask: fan_mask as _,
             light_map: SurfaceLightMap {
-                final_word: 0,
+                final_word: 0 | (0x8 << 6) | (0x8), // stEnc, lmapLogScaleX, lmapLogScaleY
                 tex_gen_x_distance: 0.0,
                 tex_gen_y_distance: 0.0,
             },
@@ -639,6 +653,351 @@ impl DIFBuilder {
 
         self.interior.convex_hulls.push(hull);
         index
+    }
+
+    fn process_hull_poly_lists(&mut self) {
+        self.interior.poly_list_plane_indices.clear();
+        self.interior.poly_list_point_indices.clear();
+        self.interior.poly_list_string_characters.clear();
+        for hull in self.interior.convex_hulls.iter_mut() {
+            let mut point_indices: Vec<u32> = vec![];
+            let mut plane_indices: Vec<u16> = vec![];
+            let mut temp_surfaces = vec![];
+
+            // Extract all the surfaces from this hull into our temporary processing format
+            for i in 0..hull.surface_count {
+                let mut temp_surface = TempProcSurface::new();
+                let surface_index = &self.interior.hull_surface_indices
+                    [(i as u32 + hull.surface_start.inner()) as usize];
+                {
+                    match surface_index {
+                        PossiblyNullSurfaceIndex::Null(idx) => {
+                            let ns = &self.interior.null_surfaces[*idx.inner() as usize];
+                            temp_surface.plane_index = *ns.plane_index.inner();
+                            temp_surface.num_points = ns.winding_count as usize;
+                            for j in 0..ns.winding_count {
+                                temp_surface.point_indices[j as usize] = *self.interior.indices
+                                    [*ns.winding_start.inner() as usize + j as usize]
+                                    .inner();
+                            }
+                        }
+                        PossiblyNullSurfaceIndex::NonNull(idx) => {
+                            let s = &self.interior.surfaces[*idx.inner() as usize];
+                            temp_surface.plane_index = *s.plane_index.inner();
+
+                            let mut temp_indices = [0; 32];
+                            let mut jdx = 1;
+                            let mut j = 1;
+                            while j < s.winding_count {
+                                temp_indices[jdx] = j;
+                                jdx += 1;
+                                j += 2;
+                            }
+                            j = (s.winding_count - 1) & (!1);
+                            while j > 0 {
+                                temp_indices[jdx] = j;
+                                j -= 2;
+                            }
+                            jdx = 0;
+                            for j in 0..s.winding_count {
+                                if s.fan_mask & (1 << j) > 0 {
+                                    temp_surface.point_indices[jdx] =
+                                        *self.interior.indices[*s.winding_start.inner() as usize
+                                            + temp_indices[j as usize] as usize]
+                                            .inner();
+                                    jdx += 1;
+                                }
+                            }
+                            temp_surface.num_points = jdx;
+                        }
+                    }
+                }
+                temp_surfaces.push(temp_surface);
+            }
+
+            // First order of business: extract all unique planes and points from
+            //  the list of surfaces...
+            for surf in temp_surfaces.iter() {
+                let mut found = false;
+                for plane_index in plane_indices.iter() {
+                    if surf.plane_index == *plane_index {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    plane_indices.push(surf.plane_index);
+                }
+                for k in 0..surf.num_points {
+                    found = false;
+                    for point_index in point_indices.iter() {
+                        if *point_index == surf.point_indices[k] {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        point_indices.push(surf.point_indices[k]);
+                    }
+                }
+            }
+
+            // Now that we have all the unique points and planes, remap the surfaces in
+            //  terms of the offsets into the unique point list...
+            for surf in temp_surfaces.iter_mut() {
+                for k in 0..surf.num_points {
+                    let mut found = false;
+                    for l in 0..point_indices.len() {
+                        if point_indices[l] == surf.point_indices[k] {
+                            surf.point_indices[k] = l as u32;
+                            found = true;
+                            break;
+                        }
+                    }
+                    assert!(
+                        found,
+                        "Error remapping point indices in interior collision processing"
+                    );
+                }
+            }
+
+            // Ok, at this point, we have a list of unique points, unique planes, and the
+            //  surfaces all remapped in those terms.  We need to check our error conditions
+            //  that will make sure that we can properly encode this hull:
+            assert!(
+                plane_indices.len() < 256,
+                "Error, > 256 planes on an interior hull"
+            );
+            assert!(
+                point_indices.len() < 65536,
+                "Error, > 65536 points on an interior hull"
+            );
+            assert!(
+                temp_surfaces.len() < 256,
+                "Error, > 256 surfaces on an interior hull"
+            );
+
+            // Now we group the planes together, and merge the closest groups until we're left
+            //  with <= 8 groups
+            let mut plane_groups = vec![];
+            for plane_index in plane_indices.iter() {
+                let mut pg = PlaneGrouping::new();
+                pg.num_planes = 1;
+                pg.plane_indices[0] = *plane_index;
+                plane_groups.push(pg);
+            }
+
+            while plane_groups.len() > 8 {
+                // Find the two closest groups.  If mdp(i, j) is the value of the
+                //  largest pairwise dot product that can be computed from the vectors
+                //  of group i, and group j, then the closest group pair is the one
+                //  with the smallest value of mdp.
+                let mut cur_min = 2.0;
+                let mut first_group = -1;
+                let mut second_group = -1;
+
+                for j in 0..plane_groups.len() {
+                    let first = &plane_groups[j];
+                    for k in (j + 1)..plane_groups.len() {
+                        let second = &plane_groups[k];
+                        let mut max = -2.0;
+                        for l in 0..first.num_planes {
+                            for m in 0..second.num_planes {
+                                let mut first_normal = self.interior.normals[*self.interior.planes
+                                    [(first.plane_indices[l] & !0x8000) as usize]
+                                    .normal_index
+                                    .inner()
+                                    as usize]
+                                    .clone();
+                                if first.plane_indices[l] & 0x8000 > 0 {
+                                    first_normal *= -1.0;
+                                }
+                                let mut second_normal = self.interior.normals[*self.interior.planes
+                                    [(second.plane_indices[m] & !0x8000) as usize]
+                                    .normal_index
+                                    .inner()
+                                    as usize]
+                                    .clone();
+                                if second.plane_indices[m] & 0x8000 > 0 {
+                                    second_normal *= -1.0;
+                                }
+                                let mut normal_dot = first_normal.dot(second_normal);
+                                if normal_dot > max {
+                                    max = normal_dot;
+                                }
+                            }
+                        }
+
+                        if max < cur_min {
+                            cur_min = max;
+                            first_group = j as i32;
+                            second_group = k as i32;
+                        }
+                    }
+                }
+                assert!(
+                    first_group != -1 && second_group != -1,
+                    "Error, unable to find a suitable pairing?"
+                );
+
+                // Merge first and second
+                let mut from = plane_groups[second_group as usize].clone();
+                let to = &mut plane_groups[first_group as usize];
+                while from.num_planes != 0 {
+                    to.plane_indices[to.num_planes] = from.plane_indices[from.num_planes - 1];
+                    to.num_planes += 1;
+                    from.num_planes -= 1;
+                }
+
+                // And remove the merged group
+                plane_groups.remove(second_group as usize);
+            }
+
+            // Assign a mask to each of the plane groupings
+            for (j, plane_group) in plane_groups.iter_mut().enumerate() {
+                plane_group.mask = (1 << j) as u8;
+            }
+
+            // Now, assign the mask to each of the temp polys
+            for surf in temp_surfaces.iter_mut() {
+                let mut assigned = false;
+                for plane_group in plane_groups.iter() {
+                    for l in 0..plane_group.num_planes {
+                        if plane_group.plane_indices[l] == surf.plane_index {
+                            surf.mask = plane_group.mask;
+                            assigned = true;
+                            break;
+                        }
+                    }
+                    if assigned {
+                        break;
+                    }
+                }
+                assert!(
+                    assigned,
+                    "Error, missed a plane somewhere in the hull poly list!"
+                );
+            }
+
+            // Copy the appropriate group mask to the plane masks
+            let mut plane_masks = vec![];
+            for plane_index in plane_indices.iter() {
+                let mut found = false;
+                for plane_group in plane_groups.iter() {
+                    for l in 0..plane_group.num_planes {
+                        if plane_group.plane_indices[l] == *plane_index {
+                            plane_masks.push(plane_group.mask);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if found {
+                        break;
+                    }
+                }
+                if !found {
+                    plane_masks.push(0);
+                }
+            }
+
+            // And whip through the points, constructing the total mask for that point
+            let mut point_masks = vec![];
+            for (j, point_index) in point_indices.iter().enumerate() {
+                point_masks.push(0);
+                for surf in temp_surfaces.iter() {
+                    for l in 0..surf.num_points {
+                        if surf.point_indices[l] == j as u32 {
+                            point_masks[j] |= surf.mask;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Create the emit strings, and we're done!
+
+            // Set the range of planes
+            hull.poly_list_plane_start =
+                PolyListPlaneIndex::from(self.interior.poly_list_plane_indices.len() as u32);
+
+            for plane_index in plane_indices.iter() {
+                self.interior
+                    .poly_list_plane_indices
+                    .push(PlaneIndex::from(*plane_index));
+            }
+
+            // Set the range of points
+            hull.poly_list_point_start =
+                PolyListPointIndex::from(self.interior.poly_list_point_indices.len() as u32);
+            for point_index in point_indices.iter() {
+                self.interior
+                    .poly_list_point_indices
+                    .push(PointIndex::from(*point_index));
+            }
+
+            // Now the emit string.  The emit string goes like: (all fields are bytes)
+            //  NumPlanes (PLMask) * NumPlanes
+            //  NumPointsHi NumPointsLo (PtMask) * NumPoints
+            //  NumSurfaces
+            //   (NumPoints SurfaceMask PlOffset (PtOffsetHi PtOffsetLo) * NumPoints) * NumSurfaces
+            //
+            let mut string_len = 1 + plane_indices.len() + 2 + point_indices.len() + 1;
+            for surf in temp_surfaces.iter() {
+                string_len += 1 + 1 + 1 + (surf.num_points * 2);
+            }
+
+            hull.poly_list_string_start =
+                PolyListStringIndex::from(self.interior.poly_list_string_characters.len() as u32);
+
+            // Planes
+            self.interior
+                .poly_list_string_characters
+                .push(plane_indices.len() as u8);
+            for plane_index in plane_masks.iter() {
+                self.interior.poly_list_string_characters.push(*plane_index);
+            }
+
+            // Points
+            self.interior
+                .poly_list_string_characters
+                .push(((point_indices.len() >> 8) & 0xFF) as u8);
+            self.interior
+                .poly_list_string_characters
+                .push((point_indices.len() & 0xFF) as u8);
+            for point_index in point_masks.iter() {
+                self.interior.poly_list_string_characters.push(*point_index);
+            }
+
+            // Surfaces
+            self.interior
+                .poly_list_string_characters
+                .push(temp_surfaces.len() as u8);
+            for surf in temp_surfaces.iter() {
+                self.interior
+                    .poly_list_string_characters
+                    .push(surf.num_points as u8);
+                self.interior
+                    .poly_list_string_characters
+                    .push(surf.mask as u8);
+
+                let mut found = false;
+                for (k, plane_index) in plane_indices.iter().enumerate() {
+                    if *plane_index == surf.plane_index {
+                        self.interior.poly_list_string_characters.push(k as u8);
+                        found = true;
+                        break;
+                    }
+                }
+                for k in 0..surf.num_points {
+                    self.interior
+                        .poly_list_string_characters
+                        .push(((surf.point_indices[k] >> 8) & 0xFF) as u8);
+                    self.interior
+                        .poly_list_string_characters
+                        .push((surf.point_indices[k] & 0xFF) as u8);
+                }
+            }
+        }
     }
 
     fn export_emit_string(&mut self, string: Vec<u8>) -> EmitStringIndex {
@@ -875,6 +1234,53 @@ fn empty_interior() -> Interior {
         tex_matrix_indices: vec![],
         extended_light_map_data: 0,
         light_map_border_size: 0,
+    }
+}
+
+fn empty_lightmap() -> PNG {
+    let mut img = ImageBuffer::new(256, 256);
+    for (x, y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = image::Luma([0]);
+    }
+    let mut v = Vec::new();
+    let png = PngEncoder::new(v.by_ref());
+    png.write_image(&img, 256, 256, image::ExtendedColorType::L8);
+
+    PNG { data: v }
+}
+
+struct TempProcSurface {
+    pub num_points: usize,
+    pub point_indices: [u32; 32],
+    pub plane_index: u16,
+    pub mask: u8,
+}
+
+impl TempProcSurface {
+    pub fn new() -> Self {
+        TempProcSurface {
+            num_points: 0,
+            point_indices: [0; 32],
+            plane_index: 0,
+            mask: 0,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct PlaneGrouping {
+    pub num_planes: usize,
+    pub plane_indices: [u16; 32],
+    pub mask: u8,
+}
+
+impl PlaneGrouping {
+    pub fn new() -> Self {
+        PlaneGrouping {
+            num_planes: 0,
+            plane_indices: [0; 32],
+            mask: 0,
+        }
     }
 }
 

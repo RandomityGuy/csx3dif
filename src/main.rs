@@ -52,7 +52,7 @@ impl Into<SplitMethod> for BSPAlgo {
 #[derive(Parser)]
 #[command(name = "csx3dif")]
 #[command(author = "RandomityGuy")]
-#[command(version = "1.0.5")]
+#[command(version = "1.0.6")]
 #[command(about = "Convert Torque Constructor CSX files to Torque DIF files easily!")]
 struct Args {
     filepath: String,

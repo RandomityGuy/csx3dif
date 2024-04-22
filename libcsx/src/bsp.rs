@@ -309,16 +309,16 @@ impl CSXBSPNode {
                 break;
             }
         }
-        // let mut total_faces = 0;
-        // let mut remaining_faces = 0;
-        // for brush in self.brush_list.iter() {
-        //     for face in brush.faces.iter() {
-        //         if !face.used_plane {
-        //             remaining_faces += 1;
-        //         }
-        //         total_faces += 1;
-        //     }
-        // }
+        let mut total_faces = 0;
+        let mut remaining_faces = 0;
+        for brush in self.brush_list.iter() {
+            for face in brush.faces.iter() {
+                if !face.used_plane {
+                    remaining_faces += 1;
+                }
+                total_faces += 1;
+            }
+        }
         if unused_planes && self.plane_index == None {
             let split_plane = match unsafe { &BSP_CONFIG.split_method } {
                 SplitMethod::Fast => self.select_best_splitter(plane_list),
