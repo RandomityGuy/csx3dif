@@ -2,6 +2,7 @@ pub mod bsp;
 pub mod builder;
 pub mod csx;
 pub mod light;
+pub mod lightmap;
 use std::io::Cursor;
 
 use bsp::BSP_CONFIG;

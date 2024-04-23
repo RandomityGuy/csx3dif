@@ -603,6 +603,9 @@ pub fn convert_csx(
                 d.interior_map.ambient_color.clone(),
                 d.interior_map.ambient_color_emerg.clone(),
             );
+            cur_builder.set_lumel_scale(d.interior_map.light_scale);
+            cur_builder.set_geometry_scale(d.interior_map.brush_scale);
+            cur_builder.set_lights(lights.clone());
             for b in d
                 .interior_map
                 .brushes

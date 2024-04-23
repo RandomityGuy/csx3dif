@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Cursor;
-use std::io::Read;
 use std::io::Write;
 
 use crate::bsp::build_bsp;
@@ -12,6 +10,8 @@ use crate::csx::Face;
 use crate::csx::TexGen;
 use crate::csx::Vertex;
 use crate::light::Light;
+use crate::lightmap;
+use crate::lightmap::LightmapSurface;
 use cgmath::AbsDiffEq;
 use cgmath::InnerSpace;
 use cgmath::Vector3;
@@ -20,6 +20,7 @@ use dif::types::*;
 use image::codecs::png::PngEncoder;
 use image::ImageBuffer;
 use image::ImageEncoder;
+use image::Rgb;
 use rectangle_pack::contains_smallest_box;
 use rectangle_pack::pack_rects;
 use rectangle_pack::volume_heuristic;
@@ -863,7 +864,7 @@ impl DIFBuilder {
                                 if second.plane_indices[m] & 0x8000 > 0 {
                                     second_normal *= -1.0;
                                 }
-                                let mut normal_dot = first_normal.dot(second_normal);
+                                let normal_dot = first_normal.dot(second_normal);
                                 if normal_dot > max {
                                     max = normal_dot;
                                 }
@@ -944,7 +945,7 @@ impl DIFBuilder {
 
             // And whip through the points, constructing the total mask for that point
             let mut point_masks = vec![];
-            for (j, point_index) in point_indices.iter().enumerate() {
+            for (j, _) in point_indices.iter().enumerate() {
                 point_masks.push(0);
                 for surf in temp_surfaces.iter() {
                     for l in 0..surf.num_points {
@@ -983,9 +984,9 @@ impl DIFBuilder {
             //  NumSurfaces
             //   (NumPoints SurfaceMask PlOffset (PtOffsetHi PtOffsetLo) * NumPoints) * NumSurfaces
             //
-            let mut string_len = 1 + plane_indices.len() + 2 + point_indices.len() + 1;
+            let mut _string_len = 1 + plane_indices.len() + 2 + point_indices.len() + 1;
             for surf in temp_surfaces.iter() {
-                string_len += 1 + 1 + 1 + (surf.num_points * 2);
+                _string_len += 1 + 1 + 1 + (surf.num_points * 2);
             }
 
             hull.poly_list_string_start =
@@ -1030,6 +1031,7 @@ impl DIFBuilder {
                         break;
                     }
                 }
+                assert!(found, "Error, missed a plane in the poly list!");
                 for k in 0..surf.num_points {
                     self.interior
                         .poly_list_string_characters
@@ -1161,13 +1163,65 @@ impl DIFBuilder {
         let mut rects_to_place: GroupedRectsToPlace<usize, ()> = GroupedRectsToPlace::new();
         let mut lmaps_needed = 1;
         let mut area_remaining = (256 * 256) as i32;
+
+        let mut lmap_surfaces = vec![];
+
         for surf_idx in 0..self.interior.surfaces.len() {
-            let lmap_area = self.fill_in_lightmap_info(surf_idx, &mut rects_to_place);
+            let (lmap_area, sc, tc) = self.fill_in_lightmap_info(surf_idx, &mut rects_to_place);
             if area_remaining - lmap_area < 0 {
                 lmaps_needed += 1;
                 area_remaining = (256 * 256) as i32;
             }
+
+            let mut first_normal = self.interior.normals[*self.interior.planes
+                [(self.interior.surfaces[surf_idx].plane_index.into_inner() & !0x8000) as usize]
+                .normal_index
+                .inner() as usize]
+                .clone();
+            if (self.interior.surfaces[surf_idx].plane_index.into_inner() & 0x8000) > 0 {
+                first_normal *= -1.0;
+            }
+
+            // Get these triangle points from the surface for lightmap purposes
+            let mut points = vec![];
+
+            let surf = &self.interior.surfaces[surf_idx];
+            for k in (surf.winding_start.into_inner() as usize + 2)
+                ..(surf.winding_start.into_inner() as usize + surf.winding_count as usize)
+            {
+                let p1: Point3F;
+                let p2: Point3F;
+                let p3: Point3F;
+                if (k - (surf.winding_start.into_inner() as usize)) % 2 == 0 {
+                    p1 = self.interior.points[self.interior.indices[k].into_inner() as usize];
+                    p2 = self.interior.points[self.interior.indices[k - 1].into_inner() as usize];
+                    p3 = self.interior.points[self.interior.indices[k - 2].into_inner() as usize];
+                } else {
+                    p1 = self.interior.points[self.interior.indices[k - 2].into_inner() as usize];
+                    p2 = self.interior.points[self.interior.indices[k - 1].into_inner() as usize];
+                    p3 = self.interior.points[self.interior.indices[k].into_inner() as usize];
+                }
+
+                points.push(p1);
+                points.push(p2);
+                points.push(p3);
+            }
+
             area_remaining -= lmap_area;
+            lmap_surfaces.push(LightmapSurface {
+                surface_index: surf_idx,
+                sc: sc,
+                tc: tc,
+                dx: 0.0,
+                dy: 0.0,
+                offset_x: 0,
+                offset_y: 0,
+                width: 0,
+                height: 0,
+                normal: first_normal,
+                tri_points: points,
+                lightmap_index: 0,
+            });
         }
         let mut target_bins = BTreeMap::new();
         for i in 0..lmaps_needed {
@@ -1182,20 +1236,6 @@ impl DIFBuilder {
             &contains_smallest_box,
         )
         .unwrap();
-
-        // Add the lightmaps now
-        for _ in 0..lmaps_needed {
-            // Add the blank lightmap so we don't crash
-            self.interior.light_maps.push(LightMap {
-                light_map: empty_lightmap(
-                    self.ambient_color.x as u8,
-                    self.ambient_color.y as u8,
-                    self.ambient_color.z as u8,
-                ),
-                light_dir_map: None,
-                keep_light_map: 0,
-            });
-        }
 
         // Then pack
         for surf_idx in 0..self.interior.surfaces.len() {
@@ -1213,6 +1253,48 @@ impl DIFBuilder {
             self.interior.surfaces[surf_idx]
                 .light_map
                 .tex_gen_y_distance += packed_loc.y() as f32 / 256.0;
+            lmap_surfaces[surf_idx].dx = self.interior.surfaces[surf_idx]
+                .light_map
+                .tex_gen_x_distance;
+            lmap_surfaces[surf_idx].dy = self.interior.surfaces[surf_idx]
+                .light_map
+                .tex_gen_y_distance;
+            lmap_surfaces[surf_idx].width = packed_loc.width() as usize;
+            lmap_surfaces[surf_idx].height = packed_loc.height() as usize;
+            lmap_surfaces[surf_idx].offset_x = packed_loc.x() as usize;
+            lmap_surfaces[surf_idx].offset_y = packed_loc.y() as usize;
+            lmap_surfaces[surf_idx].lightmap_index = *lmap_index as usize;
+        }
+
+        // Now actually compute the lightmaps
+        // Add the lightmaps now
+        for _ in 0..lmaps_needed {
+            // Add the blank lightmap so we don't crash
+
+            // let lmap_data = lightmap::LightMap::new(
+            //     &self.interior,
+            //     &lmap_surfaces,
+            //     &self.lights,
+            //     256,
+            //     i as usize,
+            //     self.lumel_scale,
+            // );
+
+            // self.interior.light_maps.push(LightMap {
+            //     light_map: filled_lightmap(&lmap_data.pixels),
+            //     light_dir_map: None,
+            //     keep_light_map: 0,
+            // });
+
+            self.interior.light_maps.push(LightMap {
+                light_map: empty_lightmap(
+                    self.ambient_color.x as u8,
+                    self.ambient_color.y as u8,
+                    self.ambient_color.z as u8,
+                ),
+                light_dir_map: None,
+                keep_light_map: 0,
+            });
         }
     }
 
@@ -1220,7 +1302,7 @@ impl DIFBuilder {
         &mut self,
         surface_index: usize,
         rects_to_place: &mut GroupedRectsToPlace<usize, ()>,
-    ) -> i32 {
+    ) -> (i32, Point3F, Point3F) {
         let axises = vec![
             Point3F::new(1.0, 0.0, 0.0),
             Point3F::new(0.0, 1.0, 0.0),
@@ -1228,32 +1310,33 @@ impl DIFBuilder {
         ];
         let mut best_dot = -1.0;
         let mut best_index = 0;
-        for i in 0..3 {
-            let mut first_normal =
-                self.interior.normals[*self.interior.planes[(self.interior.surfaces[surface_index]
-                    .plane_index
-                    .into_inner()
-                    & !0x8000) as usize]
-                    .normal_index
-                    .inner() as usize]
-                    .clone();
-            if (self.interior.surfaces[surface_index]
+
+        let mut first_normal =
+            self.interior.normals[*self.interior.planes[(self.interior.surfaces[surface_index]
                 .plane_index
                 .into_inner()
-                & 0x8000)
-                > 0
-            {
-                first_normal *= -1.0;
-            }
+                & !0x8000) as usize]
+                .normal_index
+                .inner() as usize]
+                .clone();
+        if (self.interior.surfaces[surface_index]
+            .plane_index
+            .into_inner()
+            & 0x8000)
+            > 0
+        {
+            first_normal *= -1.0;
+        }
 
-            let dot = first_normal.dot(axises[i]);
+        for i in 0..3 {
+            let dot = first_normal.dot(axises[i]).abs();
             if dot > best_dot {
                 best_dot = dot;
                 best_index = i;
             }
         }
-        let mut sc = 0;
-        let mut tc = 0;
+        let sc;
+        let tc;
 
         if axises[best_index].x != 0.0 {
             sc = 1;
@@ -1391,7 +1474,11 @@ impl DIFBuilder {
             RectToInsert::new(lmap_dim_x, lmap_dim_y, 255),
         );
 
-        lmap_dim_x as i32 * lmap_dim_y as i32
+        (
+            lmap_dim_x as i32 * lmap_dim_y as i32,
+            axises[sc] * sc_scale,
+            axises[tc] * tc_scale,
+        )
     }
 }
 
@@ -1518,9 +1605,21 @@ fn empty_interior() -> Interior {
 
 fn empty_lightmap(r: u8, g: u8, b: u8) -> PNG {
     let mut img = ImageBuffer::new(256, 256);
-    for (x, y, pixel) in img.enumerate_pixels_mut() {
+    for (_, _, pixel) in img.enumerate_pixels_mut() {
         *pixel = image::Rgb([r, g, b]);
     }
+    let mut v = Vec::new();
+    let png = PngEncoder::new(v.by_ref());
+    let _ = png
+        .write_image(&img, 256, 256, image::ExtendedColorType::Rgb8)
+        .unwrap();
+
+    PNG { data: v }
+}
+
+fn _filled_lightmap(data: &[u8]) -> PNG {
+    let mut img = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(256, 256);
+    img.copy_from_slice(data);
     let mut v = Vec::new();
     let png = PngEncoder::new(v.by_ref());
     let _ = png
