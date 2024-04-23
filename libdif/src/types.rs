@@ -34,7 +34,7 @@ pub struct PlaneF {
 
 pub type QuatF = Quaternion<f32>;
 
-#[derive(Debug, Readable, Writable)]
+#[derive(Clone, Copy, Debug, Readable, Writable)]
 pub struct ColorI {
     pub r: u8,
     pub g: u8,

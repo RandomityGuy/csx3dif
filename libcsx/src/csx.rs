@@ -17,6 +17,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::builder::{BSPReport, DIFBuilder, ProgressEventListener};
+use crate::light::{self, Light};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -559,6 +560,21 @@ pub fn convert_csx(
     mb_only: bool,
     progress_fn: &mut dyn ProgressEventListener,
 ) -> (Vec<Vec<u8>>, Vec<BSPReport>) {
+    // Collect the light entities
+    let lights = cscene
+        .detail_levels
+        .detail_level
+        .iter()
+        .flat_map(|d| {
+            d.interior_map
+                .entities
+                .entity
+                .iter()
+                .filter(|e| e.classname.starts_with("light_"))
+        })
+        .map(|light_ent| Light::new(light_ent))
+        .collect::<Vec<_>>();
+
     let mut detail_levels = cscene
         .detail_levels
         .detail_level
@@ -610,6 +626,7 @@ pub fn convert_csx(
                     );
                     cur_builder.set_lumel_scale(d.interior_map.light_scale);
                     cur_builder.set_geometry_scale(d.interior_map.brush_scale);
+                    cur_builder.set_lights(lights.clone());
                     cur_face_count = 0;
                 }
                 cur_face_count += face_count;
@@ -665,6 +682,7 @@ pub fn convert_csx(
                     );
                     builder.set_lumel_scale(d.interior_map.light_scale);
                     builder.set_geometry_scale(d.interior_map.brush_scale);
+                    builder.set_lights(lights.clone());
                     g.for_each(|b| {
                         builder.add_brush(b);
                     });
@@ -790,6 +808,7 @@ pub fn convert_csx(
                         && e.classname != "Door_Elevator"
                         && e.classname != "path_node"
                         && e.properties.contains_key("game_class")
+                        && !e.classname.starts_with("light_") // Filter out the light entities
                 })
                 .map(|e| GameEntity {
                     datablock: e

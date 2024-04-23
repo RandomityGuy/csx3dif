@@ -11,6 +11,7 @@ use crate::csx::Brush;
 use crate::csx::Face;
 use crate::csx::TexGen;
 use crate::csx::Vertex;
+use crate::light::Light;
 use cgmath::AbsDiffEq;
 use cgmath::InnerSpace;
 use cgmath::Vector3;
@@ -54,6 +55,7 @@ pub struct DIFBuilder {
     emergency_ambient_color: Point3F,
     lumel_scale: u32,
     geometry_scale: u32,
+    lights: Vec<Light>,
 }
 
 pub static mut POINT_EPSILON: f32 = 1e-6;
@@ -82,6 +84,7 @@ impl DIFBuilder {
             emergency_ambient_color: Point3F::new(0.0, 0.0, 0.0),
             lumel_scale: 8,
             geometry_scale: 32,
+            lights: vec![],
         };
     }
 
@@ -100,6 +103,10 @@ impl DIFBuilder {
 
     pub fn set_geometry_scale(&mut self, scale: u32) {
         self.geometry_scale = scale;
+    }
+
+    pub fn set_lights(&mut self, lights: Vec<Light>) {
+        self.lights = lights;
     }
 
     pub fn build(
