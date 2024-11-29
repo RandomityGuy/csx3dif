@@ -5,7 +5,8 @@ use cgmath::{
     Vector3,
 };
 use dif::interior_path_follower::{InteriorPathFollower, WayPoint};
-use dif::types::QuatF;
+use dif::trigger::{Polyhedron, PolyhedronEdge, Trigger};
+use dif::types::{Dictionary, QuatF};
 use dif::{
     dif::Dif,
     game_entity::GameEntity,
@@ -16,7 +17,9 @@ use dif::{
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::builder::{BSPReport, DIFBuilder, ProgressEventListener};
+use crate::builder::{
+    get_bounding_box, get_bounding_box_not_owned, BSPReport, DIFBuilder, ProgressEventListener,
+};
 use crate::light::{self, Light};
 
 #[derive(Serialize, Deserialize)]
@@ -554,6 +557,20 @@ fn transform_plane(
     return (norm, d);
 }
 
+struct MPGroup<'t, 'u> {
+    entities: Vec<&'t Entity>,
+    triggers: Vec<&'u Entity>,
+}
+
+impl MPGroup<'_, '_> {
+    pub fn new() -> Self {
+        MPGroup {
+            entities: vec![],
+            triggers: vec![],
+        }
+    }
+}
+
 pub fn convert_csx(
     cscene: &ConstructorScene,
     version: Version,
@@ -611,7 +628,7 @@ pub fn convert_csx(
                 .brushes
                 .brush
                 .iter()
-                .filter(|b| b.type_ != 999 || b.owner == 0)
+                .filter(|b| (b.type_ != 999 && b.type_ != 4) || b.owner == 0)
             {
                 let face_count = b.face.len();
                 if cur_face_count + face_count > 16383 {
@@ -676,6 +693,7 @@ pub fn convert_csx(
             let group_count = groups.len();
             groups
                 .into_iter()
+                .sorted_by(|(a, _), (b, _)| a.cmp(b))
                 .enumerate()
                 .map(|(i, (_, g))| {
                     let mut builder = DIFBuilder::new(mb_only);
@@ -709,11 +727,11 @@ pub fn convert_csx(
         .detail_level
         .iter()
         .flat_map(|d| {
-            d.interior_map
-                .entities
-                .entity
-                .iter()
-                .filter(|e| e.classname == "path_node" || e.classname == "Door_Elevator")
+            d.interior_map.entities.entity.iter().filter(|e| {
+                e.classname == "path_node"
+                    || e.classname == "Door_Elevator"
+                    || e.classname == "trigger"
+            })
         })
         .collect::<Vec<_>>();
     if path_node_ents.len() > 0
@@ -722,7 +740,7 @@ pub fn convert_csx(
             .find_position(|e| e.classname == "Door_Elevator")
             .is_some()
     {
-        let mut path_node_groups: HashMap<usize, Vec<&Entity>> = HashMap::new();
+        let mut path_node_groups: HashMap<usize, MPGroup> = HashMap::new();
         let mut cur_mp = path_node_ents
             .iter()
             .find_position(|e| e.classname == "Door_Elevator")
@@ -734,20 +752,27 @@ pub fn convert_csx(
             }
             if i >= cur_mp && e.classname == "Door_Elevator" {
                 cur_mp = i;
-                path_node_groups.insert(cur_mp, vec![]);
+                path_node_groups.insert(cur_mp, MPGroup::new());
             }
             if e.classname == "path_node" {
-                path_node_groups.get_mut(&cur_mp).unwrap().push(e);
+                path_node_groups.get_mut(&cur_mp).unwrap().entities.push(e);
+            }
+            if e.classname == "trigger" {
+                path_node_groups.get_mut(&cur_mp).unwrap().triggers.push(e);
             }
         }
+
+        let mut exported_triggers: Vec<Trigger> = vec![];
 
         dif.interior_path_followers = path_node_groups
             .iter()
             .enumerate()
-            .filter(|(_, (_, v))| v.len() != 0)
+            .filter(|(_, (_, v))| v.entities.len() != 0)
             .map(|(i, (&k, v))| {
                 let mut props = path_node_ents[k].properties.clone();
-                props.remove("datablock").unwrap();
+                if props.contains_key("datablock") {
+                    props.remove("datablock").unwrap();
+                }
                 InteriorPathFollower {
                     datablock: path_node_ents[k]
                         .properties
@@ -756,10 +781,49 @@ pub fn convert_csx(
                         .to_owned(),
                     properties: props,
                     name: "MustChange".to_string(),
-                    offset: v[0].origin.unwrap(),
+                    offset: Point3F::new(0.0, 0.0, 0.0),
                     interior_res_index: i as u32,
-                    trigger_ids: vec![],
+                    trigger_ids: v
+                        .triggers
+                        .iter()
+                        .map(|t| {
+                            let trigger_brushes = cscene
+                                .detail_levels
+                                .detail_level
+                                .iter()
+                                .flat_map(|d| {
+                                    d.interior_map
+                                        .brushes
+                                        .brush
+                                        .iter()
+                                        .filter(|b| b.owner == t.id)
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect::<Vec<_>>();
+                            // Just take the last one - there should only be one
+                            let trigger_bbox =
+                                get_bounding_box_not_owned(trigger_brushes.as_slice());
+
+                            let mut tprops = t.properties.clone();
+                            if tprops.contains_key("datablock") {
+                                tprops.remove("datablock").unwrap();
+                            }
+
+                            let len = exported_triggers.len();
+                            exported_triggers.push(build_trigger(
+                                t.properties
+                                    .get("datablock")
+                                    .unwrap_or(&"DefaultTrigger".to_string())
+                                    .to_string(),
+                                tprops,
+                                &trigger_bbox.min,
+                                &trigger_bbox.extent(),
+                            ));
+                            len as u32
+                        })
+                        .collect::<Vec<_>>(),
                     total_ms: v
+                        .entities
                         .iter()
                         .map(|v| {
                             v.properties
@@ -770,6 +834,7 @@ pub fn convert_csx(
                         })
                         .sum(),
                     way_points: v
+                        .entities
                         .iter()
                         .map(|v| WayPoint {
                             ms_to_next: v
@@ -793,6 +858,8 @@ pub fn convert_csx(
                 }
             })
             .collect::<Vec<_>>();
+
+        dif.triggers = exported_triggers;
     }
 
     // progress_fn.progress(0, 0, "Exporting entities".to_string(), "Exported entities");
@@ -810,6 +877,7 @@ pub fn convert_csx(
                     e.classname != "worldspawn"
                         && e.classname != "Door_Elevator"
                         && e.classname != "path_node"
+                        && e.classname != "trigger"
                         && e.properties.contains_key("game_class")
                         && !e.classname.starts_with("light_") // Filter out the light entities
                 })
@@ -862,5 +930,131 @@ pub fn dif_with_interiors(interiors: Vec<Interior>) -> Dif {
         ai_special_nodes: vec![],
         vehicle_collision: None,
         game_entities: vec![],
+    }
+}
+
+fn build_trigger(
+    datablock: String,
+    properties: Dictionary,
+    pos: &Point3F,
+    size: &Point3F,
+) -> Trigger {
+    Trigger {
+        name: "MustChange".to_string(),
+        datablock: datablock,
+        offset: Point3F::new(0.0, 0.0, 0.0),
+        properties: properties,
+        polyhedron: Polyhedron {
+            point_list: vec![
+                Point3F::new(pos.x, pos.y, pos.z + size.z),
+                Point3F::new(pos.x, pos.y + size.y, pos.z + size.z),
+                Point3F::new(pos.x + size.x, pos.y + size.y, pos.z + size.z),
+                Point3F::new(pos.x + size.x, pos.y, pos.z + size.z),
+                Point3F::new(pos.x, pos.y, pos.z),
+                Point3F::new(pos.x, pos.y + size.y, pos.z),
+                Point3F::new(pos.x + size.x, pos.y + size.y, pos.z),
+                Point3F::new(pos.x + size.x, pos.y, pos.z),
+            ],
+            plane_list: vec![
+                PlaneF {
+                    normal: Point3F::new(-1.0, 0.0, 0.0),
+                    distance: pos.x,
+                },
+                PlaneF {
+                    normal: Point3F::new(0.0, 1.0, 0.0),
+                    distance: pos.y + size.y,
+                },
+                PlaneF {
+                    normal: Point3F::new(1.0, 0.0, 0.0),
+                    distance: pos.x + size.x,
+                },
+                PlaneF {
+                    normal: Point3F::new(0.0, -1.0, 0.0),
+                    distance: pos.y,
+                },
+                PlaneF {
+                    normal: Point3F::new(0.0, 0.0, 1.0),
+                    distance: pos.z + size.z,
+                },
+                PlaneF {
+                    normal: Point3F::new(0.0, 0.0, -1.0),
+                    distance: pos.z,
+                },
+            ],
+            edge_list: vec![
+                PolyhedronEdge {
+                    face0: 0,
+                    face1: 4,
+                    vertex0: 0,
+                    vertex1: 1,
+                },
+                PolyhedronEdge {
+                    face0: 5,
+                    face1: 0,
+                    vertex0: 4,
+                    vertex1: 5,
+                },
+                PolyhedronEdge {
+                    face0: 3,
+                    face1: 0,
+                    vertex0: 0,
+                    vertex1: 4,
+                },
+                PolyhedronEdge {
+                    face0: 1,
+                    face1: 4,
+                    vertex0: 1,
+                    vertex1: 2,
+                },
+                PolyhedronEdge {
+                    face0: 5,
+                    face1: 6,
+                    vertex0: 5,
+                    vertex1: 1,
+                },
+                PolyhedronEdge {
+                    face0: 0,
+                    face1: 1,
+                    vertex0: 1,
+                    vertex1: 5,
+                },
+                PolyhedronEdge {
+                    face0: 2,
+                    face1: 4,
+                    vertex0: 2,
+                    vertex1: 3,
+                },
+                PolyhedronEdge {
+                    face0: 5,
+                    face1: 2,
+                    vertex0: 6,
+                    vertex1: 7,
+                },
+                PolyhedronEdge {
+                    face0: 1,
+                    face1: 2,
+                    vertex0: 2,
+                    vertex1: 6,
+                },
+                PolyhedronEdge {
+                    face0: 3,
+                    face1: 4,
+                    vertex0: 3,
+                    vertex1: 0,
+                },
+                PolyhedronEdge {
+                    face0: 5,
+                    face1: 3,
+                    vertex0: 7,
+                    vertex1: 4,
+                },
+                PolyhedronEdge {
+                    face0: 2,
+                    face1: 3,
+                    vertex0: 3,
+                    vertex1: 7,
+                },
+            ],
+        },
     }
 }

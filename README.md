@@ -43,7 +43,6 @@ Options:
 - Lighting and Lightmaps
 - Zones and Portals
 - Static Meshes
-- Triggers
 - Vehicle Collision
 
 

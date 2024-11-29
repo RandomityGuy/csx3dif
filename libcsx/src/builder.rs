@@ -14,6 +14,7 @@ use crate::lightmap;
 use crate::lightmap::LightmapSurface;
 use cgmath::AbsDiffEq;
 use cgmath::InnerSpace;
+use cgmath::Transform;
 use cgmath::Vector3;
 use dif::interior::*;
 use dif::types::*;
@@ -1493,7 +1494,17 @@ where
     results
 }
 
-fn get_bounding_box(brushes: &[Brush]) -> BoxF {
+pub fn get_bounding_box(brushes: &[Brush]) -> BoxF {
+    BoxF::from_vertices(
+        &brushes
+            .iter()
+            .flat_map(|t| &t.vertices.vertex)
+            .map(|v| &v.pos)
+            .collect::<Vec<_>>(),
+    )
+}
+
+pub fn get_bounding_box_not_owned(brushes: &[&Brush]) -> BoxF {
     BoxF::from_vertices(
         &brushes
             .iter()
