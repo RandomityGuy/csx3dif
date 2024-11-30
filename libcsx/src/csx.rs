@@ -766,8 +766,9 @@ pub fn convert_csx(
 
         dif.interior_path_followers = path_node_groups
             .iter()
+            .filter(|(_, v)| v.entities.len() != 0)
+            .sorted_by(|(a, _), (b, _)| a.cmp(b))
             .enumerate()
-            .filter(|(_, (_, v))| v.entities.len() != 0)
             .map(|(i, (&k, v))| {
                 let mut props = path_node_ents[k].properties.clone();
                 if props.contains_key("datablock") {
