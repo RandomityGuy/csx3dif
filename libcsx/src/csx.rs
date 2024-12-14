@@ -687,7 +687,7 @@ pub fn convert_csx(
                 .brushes
                 .brush
                 .iter()
-                .filter(|b| b.owner != 0)
+                .filter(|b| b.owner != 0 && b.type_ == 999)
                 .group_by(|b| b.owner);
             let groups: Vec<_> = group_query.into_iter().collect();
             let group_count = groups.len();
